@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Countdown from "@/components/Countdown";
-import { formatMoney, incrementFor, parseMoneyToCents } from "@/lib/money";
+import { MIN_BID_CENTS, formatMoney, parseMoneyToCents } from "@/lib/money";
 import type { SpotView, StartBidResult } from "@/lib/types";
 
 export interface BidDialogProps {
@@ -78,12 +78,17 @@ export default function BidDialog({
   const displayName = nameEdit ?? bidder?.displayName ?? "";
   const link = linkEdit ?? bidder?.link ?? "";
 
-  // The server can tell us the bar moved under us; that beats the snapshot the
-  // board was rendered from until the next state frame arrives.
-  const [minOverrideCents, setMinOverrideCents] = useState<number | null>(null);
-  const minCents = Math.max(spot?.minimumNextBidCents ?? 0, minOverrideCents ?? 0);
-
   const spotKey = spot?.key ?? null;
+
+  /**
+   * What it takes to actually hold this panel: the listed price while nobody
+   * holds it, then a full step above whoever does.
+   *
+   * Not a minimum. Any amount from MIN_BID_CENTS up is accepted and charged;
+   * this is the number the form suggests and the copy warns about, because a
+   * bid under it is support that will never put a logo on the car.
+   */
+  const toHoldCents = spot?.priceToBeatCents ?? 0;
 
   // Re-arm on every fresh open, during render rather than in an effect so the
   // form never paints one frame of the previous spot's numbers. Keyed on the
@@ -92,13 +97,12 @@ export default function BidDialog({
   const [armedFor, setArmedFor] = useState<string | null>(null);
   if (spotKey !== null && spotKey !== armedFor) {
     setArmedFor(spotKey);
-    setAmount(centsToInput(spot?.minimumNextBidCents ?? 0));
+    setAmount(centsToInput(toHoldCents));
     setFieldErrors({});
     setNotice(null);
     setSubmitting(false);
     setFormDisabled(false);
     setDemoPlacedCents(null);
-    setMinOverrideCents(null);
   }
 
   // showModal() is what buys the focus trap, the inert background, Escape, and
@@ -123,25 +127,23 @@ export default function BidDialog({
 
   const chips = useMemo(() => {
     if (!spot) return [] as Array<{ label: string; cents: number }>;
-    const current = spot.currentPriceCents;
-    const smallest = Math.max(minCents, current + incrementFor(current));
     const raise = (factor: number) =>
-      Math.max(smallest, Math.ceil((current * (1 + factor)) / 100) * 100);
+      Math.max(toHoldCents, Math.ceil((toHoldCents * factor) / 100) * 100);
 
     const candidates = [
-      { label: "Minimum", cents: smallest },
-      { label: "+10%", cents: raise(0.1) },
-      { label: "+25%", cents: raise(0.25) },
+      { label: "To take it", cents: toHoldCents },
+      { label: "+10%", cents: raise(1.1) },
+      { label: "+25%", cents: raise(1.25) },
     ];
-    // At low prices the increment floor already exceeds +10%, and two chips
-    // with different labels and identical amounts just read as a bug.
+    // At low prices the rounding makes two chips land on the same amount, and
+    // different labels over identical numbers just read as a bug.
     const seen = new Set<number>();
     return candidates.filter((chip) => {
       if (seen.has(chip.cents)) return false;
       seen.add(chip.cents);
       return true;
     });
-  }, [spot, minCents]);
+  }, [spot, toHoldCents]);
 
   function close() {
     dialogRef.current?.close();
@@ -157,8 +159,8 @@ export default function BidDialog({
 
     const errors: FieldErrors = {};
     if (cents === null) errors.amount = "Enter an amount, like 250 or 250.00.";
-    else if (cents < minCents)
-      errors.amount = `The minimum bid on this spot is ${formatMoney(minCents)}.`;
+    else if (cents < MIN_BID_CENTS)
+      errors.amount = `The smallest bid is ${formatMoney(MIN_BID_CENTS)}.`;
     if (!EMAIL_SHAPE.test(trimmedEmail))
       errors.email = "Enter an email address we can send the receipt to.";
     if (trimmedName.length < 2)
@@ -222,26 +224,11 @@ export default function BidDialog({
     setSubmitting(false);
 
     switch (result.reason) {
-      case "below_minimum": {
-        const next = result.minimumNextBidCents ?? minCents;
-        setMinOverrideCents(next);
-        setAmount(centsToInput(next));
-        setFieldErrors({
-          amount: `Someone bid while you were typing. The minimum is now ${formatMoney(next)}.`,
-        });
-        setNotice({
-          tone: "info",
-          text: "Your amount has been raised to the new minimum. Check it, then bid again.",
-        });
-        amountRef.current?.focus();
-        break;
-      }
       case "already_holding": {
-        const next = result.minimumNextBidCents ?? minCents;
         setNotice({
           tone: "info",
-          text: `You already hold this spot. You can raise your own bid to ${formatMoney(next)} or more. The difference is charged on top of what you have already paid.`,
-          raiseToCents: next,
+          text: `You already hold this spot. Bid more than ${formatMoney(spot.currentPriceCents)} to raise your own price; the new amount is charged on top of what you have already paid.`,
+          raiseToCents: toHoldCents,
         });
         break;
       }
@@ -356,9 +343,9 @@ export default function BidDialog({
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-faint">Minimum next bid</dt>
+                  <dt className="text-faint">To take it</dt>
                   <dd className="tabular mt-0.5 text-[17px] font-semibold text-ink">
-                    {formatMoney(minCents)}
+                    {formatMoney(toHoldCents)}
                   </dd>
                 </div>
                 {serverNow !== undefined ? (
@@ -406,7 +393,7 @@ export default function BidDialog({
                     aria-invalid={fieldErrors.amount ? true : undefined}
                     aria-describedby={fieldErrors.amount ? `${amountId}-error` : termsId}
                     className="tabular w-full bg-transparent px-2 py-3 text-[17px] outline-none placeholder:text-faint"
-                    placeholder={centsToInput(minCents)}
+                    placeholder={centsToInput(toHoldCents)}
                   />
                 </div>
                 {fieldErrors.amount ? (
@@ -415,7 +402,10 @@ export default function BidDialog({
                   </p>
                 ) : (
                   <p className="mt-2 text-[12px] text-faint">
-                    At least {formatMoney(minCents)}.
+                    {formatMoney(toHoldCents)} takes it. Anything from{" "}
+                    {formatMoney(MIN_BID_CENTS)} is accepted, but under{" "}
+                    {formatMoney(toHoldCents)} you go on the bidders list without taking the
+                    panel.
                   </p>
                 )}
 

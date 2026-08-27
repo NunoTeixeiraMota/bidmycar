@@ -43,6 +43,7 @@ export default function SpotHotspot({
 }: SpotHotspotProps) {
   const holder = spot.holder;
   const logoUrl = holder?.logoUrl ?? null;
+  const holderLink = holder?.link ?? null;
   const pending = holder?.artworkPending === true;
   const closed = spot.status === "closed";
   const ellipse = spot.shape === "ellipse";
@@ -84,6 +85,7 @@ export default function SpotHotspot({
   }
 
   return (
+    <>
     <button
       type="button"
       ref={(node) => {
@@ -163,5 +165,35 @@ export default function SpotHotspot({
         </span>
       </span>
     </button>
+
+    {/*
+      The holder's own site.
+
+      A sibling of the hotspot rather than a child of it, because the hotspot is
+      a <button> and an <a> inside a <button> is invalid HTML that browsers
+      resolve by unnesting it. Both are positioned against the same photo, in
+      the same percentages, so it lands on the corner of the spot anyway.
+
+      Only rendered when the holder actually gave a website; a spot with nobody
+      on it, or a holder who left the field empty, gets no button at all.
+    */}
+    {holderLink ? (
+      <a
+        href={holderLink}
+        target="_blank"
+        // Not a link the site vouches for: it is whatever a bidder typed.
+        rel="noopener noreferrer nofollow ugc"
+        onClick={(event) => event.stopPropagation()}
+        title={`Visit ${holder?.displayName ?? "this bidder"}`}
+        style={{ left: `${spot.x + spot.w}%`, top: `${spot.y}%` }}
+        className="absolute z-30 flex h-[18px] w-[18px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-canvas text-[10px] font-semibold leading-none text-ink shadow-[0_1px_4px_rgba(0,0,0,0.35)] transition-transform duration-200 ease-showroom hover:scale-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+      >
+        <span aria-hidden="true">&#8599;</span>
+        <span className="sr-only">
+          Visit {holder?.displayName ?? "this bidder"} (opens in a new tab)
+        </span>
+      </a>
+    ) : null}
+    </>
   );
 }

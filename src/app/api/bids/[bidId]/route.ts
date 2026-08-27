@@ -58,6 +58,7 @@ function publicBid(bid: Bid): PublicBid {
     createdAt: bid.createdAt,
     paidAt: bid.paidAt,
     refundedAt: bid.refundedAt,
+    contends: bid.contends,
     sequence: bid.sequence,
   };
 }

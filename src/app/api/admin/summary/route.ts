@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 
-import { minimumBidFor, priceOf, topBidOf } from "@/lib/auction";
+import { holderOf, priceOf } from "@/lib/auction";
 import {
   countSettledBidsForSpot,
   db,
@@ -91,7 +91,9 @@ export async function GET(req: Request): Promise<Response> {
 
   const spotViews = spots.map((spot) => {
     const paid = getPaidBidsForSpot(spot.id);
-    const top = topBidOf(paid);
+    // The holder, not the biggest number on the spot: a bid under the listed
+    // price is support and never takes the panel.
+    const top = holderOf(spot, paid);
     const holder = top ? bidderOf(top.bidderId) : null;
 
     return {
@@ -106,7 +108,6 @@ export async function GET(req: Request): Promise<Response> {
       heightCm: spot.heightCm,
       floorPriceCents: spot.floorPriceCents,
       currentPriceCents: priceOf(spot, paid),
-      minimumNextBidCents: minimumBidFor(spot, paid),
       // Cumulative, matching the public board: bids that were ever real money,
       // including ones since outbid. paid.length would read "1 bid" on a spot
       // two people fought over.

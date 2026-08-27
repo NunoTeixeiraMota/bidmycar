@@ -16,7 +16,7 @@ import {
   updateBid,
   updateSpot,
 } from "@/lib/db";
-import { formatMoney, minimumNextBid } from "@/lib/money";
+import { BID_STEP_CENTS, MIN_BID_CENTS, formatMoney } from "@/lib/money";
 import {
   LIVE_BID_STATUSES,
   type AuctionState,
@@ -77,29 +77,58 @@ function ranked(bids: Bid[]): Bid[] {
 }
 
 /**
- * The bid holding a spot: highest settled amount, ties won by the earlier
+ * The bids competing for a panel.
+ *
+ * Contention is a property of the bid, decided when it was placed, not
+ * something re-derived from the amount now. That distinction matters: a bid of
+ * 10.50 against a 10.00 holder is the larger number and still did not clear the
+ * one-euro step, so ranking purely by amount would hand it a panel it never
+ * won. Anything that did not clear the step is support: kept, charged, on the
+ * public roll, never on the car.
+ *
+ * A null `contends` is a row from before the column existed. Those fall back to
+ * the rule that was in force when they were written, which was simply "at or
+ * above the spot's listed price".
+ */
+export function contendersOf(spot: Spot, bids: Bid[]): Bid[] {
+  return ranked(bids).filter((bid) =>
+    bid.contends === null ? bid.amountCents >= spot.floorPriceCents : bid.contends,
+  );
+}
+
+/**
+ * What a bid has to reach to take this panel.
+ *
+ * An untouched spot goes for exactly what it is listed at. Once somebody holds
+ * it, taking it off them costs a full step more than they paid.
+ */
+export function priceToBeat(spot: Spot, bids: Bid[]): number {
+  const holder = holderOf(spot, bids);
+  return holder ? holder.amountCents + BID_STEP_CENTS : spot.floorPriceCents;
+}
+
+/**
+ * The bid holding a spot: the highest contender, ties won by the earlier
  * sequence. Matching an existing bid is not beating it, so the incumbent keeps
- * the spot, which is also why `minimumBidFor` demands a strict increment.
+ * the spot.
+ */
+export function holderOf(spot: Spot, bids: Bid[]): Bid | null {
+  return contendersOf(spot, bids)[0] ?? null;
+}
+
+/**
+ * The highest settled bid of any size, support included.
+ *
+ * This is not the holder. It exists for callers that genuinely want "the
+ * biggest number on this spot" rather than "who owns the panel".
  */
 export function topBidOf(bids: Bid[]): Bid | null {
   return ranked(bids)[0] ?? null;
 }
 
-/** What the spot costs right now: the standing top bid, or its floor. */
+/** What the spot stands at: its holder's bid, or the price it is listed at. */
 export function priceOf(spot: Spot, bids: Bid[]): number {
-  return topBidOf(bids)?.amountCents ?? spot.floorPriceCents;
-}
-
-/**
- * The smallest acceptable bid.
- *
- * Asymmetric on purpose: the first bidder may pay the floor exactly, because
- * the floor is what putting their logo on the car actually costs. Everyone
- * after them has to clear a full increment over the standing price.
- */
-export function minimumBidFor(spot: Spot, bids: Bid[]): number {
-  const top = topBidOf(bids);
-  return top ? minimumNextBid(top.amountCents) : spot.floorPriceCents;
+  return holderOf(spot, bids)?.amountCents ?? spot.floorPriceCents;
 }
 
 /* ------------------------------------------------------------------ *
@@ -120,17 +149,10 @@ export type StartBidOutcome =
       ok: false;
       reason: BidRejectionReason;
       message: string;
-      minimumNextBidCents?: number;
     };
 
-function reject(
-  reason: BidRejectionReason,
-  message: string,
-  minimumNextBidCents?: number,
-): StartBidOutcome {
-  return minimumNextBidCents === undefined
-    ? { ok: false, reason, message }
-    : { ok: false, reason, message, minimumNextBidCents };
+function reject(reason: BidRejectionReason, message: string): StartBidOutcome {
+  return { ok: false, reason, message };
 }
 
 /**
@@ -151,27 +173,30 @@ export function startBid(input: StartBidInput): StartBidOutcome {
       return reject("auction_closed", `Bidding on ${spot.name} has finished.`);
     }
 
-    if (!Number.isInteger(amountCents) || amountCents <= 0) {
-      return reject("amount_invalid", "A bid must be a whole number of cents above zero.");
+    // Stripe will not process a charge below about fifty cents, so anything
+    // under that would be taken here and refused at checkout.
+    if (!Number.isInteger(amountCents) || amountCents < MIN_BID_CENTS) {
+      return reject("amount_invalid", `A bid has to be at least ${formatMoney(MIN_BID_CENTS)}.`);
     }
 
     if (!getBidderById(bidderId)) {
       return reject("bidder_unknown", "That bidder no longer exists. Sign in again.");
     }
 
+    // No ceiling and no minimum beyond the one above. A bid that does not clear
+    // the price to beat is accepted as support and never wins the panel.
     const paid = getPaidBidsForSpot(spot.id);
-    const minimum = minimumBidFor(spot, paid);
-    if (amountCents < minimum) {
-      return reject(
-        "below_minimum",
-        `The next bid on ${spot.name} is ${formatMoney(minimum)}.`,
-        minimum,
-      );
-    }
+    const holder = holderOf(spot, paid);
+    const target = priceToBeat(spot, paid);
 
-    const holder = topBidOf(paid);
-    if (holder && holder.bidderId === bidderId) {
-      return reject("already_holding", `You already hold ${spot.name}.`);
+    // Raising your own price is allowed and costs the same step as taking it
+    // off somebody else would.
+    if (holder && holder.bidderId === bidderId && amountCents < target) {
+      return reject(
+        "already_holding",
+        `You already hold ${spot.name} at ${formatMoney(holder.amountCents)}. ` +
+          `Bid ${formatMoney(target)} or more to raise your own price.`,
+      );
     }
 
     const bid = insertBid({
@@ -180,6 +205,9 @@ export function startBid(input: StartBidInput): StartBidOutcome {
       amountCents,
       status: "pending_payment",
       createdAt: now,
+      // Judged here, against the price to beat as it stands right now, and
+      // never revisited. Settlement only ranks bids that cleared it.
+      contends: amountCents >= target,
     });
 
     return { ok: true, bid, spot };
@@ -258,19 +286,24 @@ export function settleBid(input: SettleBidInput): SettlementResult {
       return { bidId: bid.id, spotKey: spot.key, becameHolder: false, displacedBidId: null, extendedClosesAt: null };
     }
 
-    const order = ranked(getPaidBidsForSpot(spot.id));
+    // Support bids are deliberately absent from this ordering. They were never
+    // in contention, so they are not "beaten" by anything and must not be swept
+    // into `outbid`, which is the status the close job reads as owing money.
+    const order = contendersOf(spot, getPaidBidsForSpot(spot.id));
     const top = order[0] ?? null;
     const becameHolder = top !== null && top.id === bid.id;
 
-    // Everything below the top is beaten. That is normally the one previous
-    // holder, but writing it as a sweep means a bid settling behind a higher one
-    // (a race, or a webhook arriving late) demotes *itself* by the same rule.
+    // Everything below the top contender is beaten. That is normally the one
+    // previous holder, but writing it as a sweep means a bid settling behind a
+    // higher one (a race, or a webhook arriving late) demotes *itself* too.
     for (const beaten of order.slice(1)) {
       updateBid(beaten.id, { status: "outbid" });
     }
     const displacedBidId = becameHolder ? (order[1]?.id ?? null) : null;
 
-    const spotPatch: Partial<Spot> = { status: "held" };
+    // A spot only counts as held once something is actually holding it. A
+    // support bid landing on an untouched spot leaves it open.
+    const spotPatch: Partial<Spot> = top === null ? {} : { status: "held" };
     let extendedClosesAt: number | null = null;
     const inWindow = now < spot.closesAt && spot.closesAt - now <= AUCTION.snipeWindowMs;
     if (inWindow && spot.extensionCount < AUCTION.maxExtensions) {
@@ -295,7 +328,7 @@ export function settleBid(input: SettleBidInput): SettlementResult {
  * stops a redelivery days later from refunding the same card twice.
  */
 function replaySettlement(bid: Bid, spot: Spot): SettlementResult {
-  const top = topBidOf(getPaidBidsForSpot(spot.id));
+  const top = holderOf(spot, getPaidBidsForSpot(spot.id));
   const becameHolder = top !== null && top.id === bid.id;
   return {
     bidId: bid.id,
@@ -402,7 +435,9 @@ function viewOf(spot: Spot, now: number): SpotView {
   const measured = metricsFor(geometry);
 
   const paid = getPaidBidsForSpot(spot.id);
-  const top = topBidOf(paid);
+  // The holder, not merely the biggest number: a support bid under the listed
+  // price never puts a logo on the car.
+  const top = holderOf(spot, paid);
   const holderBidder = top ? getBidderById(top.bidderId) : null;
   const artwork = top ? getArtworkByBidId(top.id) : null;
   const approved = artwork !== null && artwork.reviewStatus === "approved";
@@ -422,7 +457,7 @@ function viewOf(spot: Spot, now: number): SpotView {
 
     floorPriceCents: spot.floorPriceCents,
     currentPriceCents: priceOf(spot, paid),
-    minimumNextBidCents: minimumBidFor(spot, paid),
+    priceToBeatCents: priceToBeat(spot, paid),
     bidCount: countSettledBidsForSpot(spot.id),
     status: spot.status,
     closesAt: spot.closesAt,
@@ -437,6 +472,7 @@ function viewOf(spot: Spot, now: number): SpotView {
       top && holderBidder
         ? {
             displayName: holderBidder.displayName,
+            link: holderBidder.link,
             since: top.paidAt ?? top.createdAt,
             logoUrl: approved && artwork ? `/api/artwork/${artwork.id}/file` : null,
             artworkPending: artwork !== null && !approved,
@@ -490,9 +526,10 @@ export function getBidRoll(): RollEntry[] {
     spotName: row.spot_name,
     amountCents: row.amount_cents,
     paidAt: row.paid_at ?? row.created_at,
-    // settleBid marks the displaced bid "outbid", so anything still paid or won
-    // is the standing holder of its spot.
-    holding: row.status === "paid" || row.status === "won",
+    // Compared against the spot's actual holder rather than read off the
+    // status: support bids stay `paid` for good, and `paid` alone would put a
+    // one-euro bid on the car.
+    holding: row.holder_bid_id !== null && row.holder_bid_id === row.bid_id,
   }));
 }
 
@@ -518,8 +555,11 @@ export function closeAuction(now: number): CloseResult {
       updateSpot(spot.id, { status: "closed" });
       closedSpots += 1;
 
-      const top = topBidOf(getPaidBidsForSpot(spot.id));
-      if (!top) continue; // nobody paid: the spot stays unsold at its floor
+      // The holder, not the biggest number: a spot whose only bids were under
+      // its listed price closes unsold, and those bidders keep their place on
+      // the roll without winning a panel.
+      const top = holderOf(spot, getPaidBidsForSpot(spot.id));
+      if (!top) continue;
 
       if (top.status !== "won") updateBid(top.id, { status: "won" });
       winners.push({

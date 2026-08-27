@@ -76,6 +76,18 @@ export interface Bid {
   refundedAt: number | null;
   /** Monotonic per spot; breaks ties between equal amounts, earliest wins. */
   sequence: number;
+  /**
+   * Whether this bid was a valid attempt to take the panel when it was placed.
+   *
+   * Decided once, at bid time, against the price to beat at that moment, and
+   * never revisited. It cannot be re-derived later from the amount alone: a bid
+   * of 10.50 against a 10.00 holder is a bigger number and still did not clear
+   * the one-euro step, so ranking by amount would hand it a panel it never won.
+   *
+   * Null on rows written before this existed; those fall back to the older
+   * rule, which was simply "at or above the spot's listed price".
+   */
+  contends: boolean | null;
 }
 
 /* ------------------------------------------------------------------ *
@@ -163,10 +175,13 @@ export interface SpotView {
   widthCm: number;
   heightCm: number;
 
+  /** What the spot is listed at, and the least a bid must be to take it. */
   floorPriceCents: number;
-  /** Floor price until someone pays; then the standing top bid. */
+  /** Opening price until a contending bid settles; then that bid's amount. */
   currentPriceCents: number;
-  minimumNextBidCents: number;
+  /** What a bid has to reach to take this panel: the listed price while nobody
+   *  holds it, then a full step above whoever does. */
+  priceToBeatCents: number;
   bidCount: number;
   status: SpotStatus;
   closesAt: number;
@@ -176,6 +191,8 @@ export interface SpotView {
   holder: {
     displayName: string;
     since: number;
+    /** The holder's website, already normalised to http(s), or null. */
+    link: string | null;
     /** Only set once artwork exists AND a human approved it. */
     logoUrl: string | null;
     /** True when artwork is uploaded but not yet approved; the UI shows a
@@ -228,7 +245,6 @@ export type BidRejectionReason =
   | "spot_unknown"
   | "spot_closed"
   | "auction_closed"
-  | "below_minimum"
   | "already_holding"
   | "amount_invalid"
   | "bidder_unknown"
@@ -249,7 +265,6 @@ export type StartBidResult =
       ok: false;
       reason: BidRejectionReason;
       message: string;
-      minimumNextBidCents?: number;
     };
 
 /** What settling a paid bid did to the spot. */

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AUCTION, SPOTS, metricsFor } from "@/config/car";
-import { incrementFor, minimumNextBid } from "@/lib/money";
+import { BID_STEP_CENTS, MIN_BID_CENTS } from "@/lib/money";
 import type { Bid } from "@/lib/types";
 
 /**
@@ -64,6 +64,17 @@ function seedSpot(key: string, floorPriceCents = FLOOR, closesAt = T0 + HOUR) {
   });
 }
 
+/**
+ * An amount that beats `cents`.
+ *
+ * There is no increment ladder any more, so a single cent would do; this is
+ * just a readable stand-in for "more than that" in tests that only care that
+ * one bid outranks another.
+ */
+function beats(cents: number): number {
+  return cents + 1000;
+}
+
 function seedBidder(name: string) {
   return store.insertBidder({ email: `${name}@example.com`, displayName: name });
 }
@@ -95,6 +106,9 @@ function fakeBid(over: Partial<Bid> & Pick<Bid, "amountCents" | "sequence">): Bi
     createdAt: T0,
     paidAt: T0,
     refundedAt: null,
+    // Contending by default: most tests are about ranking bids that did clear
+    // the step, and the ones about support say so explicitly.
+    contends: true,
     ...over,
   };
 }
@@ -157,16 +171,34 @@ describe("topBidOf", () => {
   });
 });
 
-describe("priceOf / minimumBidFor", () => {
-  it("opens at the floor and asks exactly the floor for the first bid", () => {
+describe("priceOf / contendersOf / holderOf", () => {
+  it("stands at the listed price until something contends", () => {
     expect(auction.priceOf(SPOT_SHAPE, [])).toBe(FLOOR);
-    expect(auction.minimumBidFor(SPOT_SHAPE, [])).toBe(FLOOR);
+    expect(auction.holderOf(SPOT_SHAPE, [])).toBeNull();
   });
 
-  it("asks a full increment once a bid has settled", () => {
-    const bids = [fakeBid({ amountCents: FLOOR, sequence: 1 })];
-    expect(auction.priceOf(SPOT_SHAPE, bids)).toBe(FLOOR);
-    expect(auction.minimumBidFor(SPOT_SHAPE, bids)).toBe(FLOOR + incrementFor(FLOOR));
+  it("takes the price of the highest contender, to the cent", () => {
+    const bids = [fakeBid({ amountCents: FLOOR + 1, sequence: 1 })];
+    expect(auction.priceOf(SPOT_SHAPE, bids)).toBe(FLOOR + 1);
+  });
+
+  it("does not let a bid under the listed price hold or price the spot", () => {
+    // Support is what the bid WAS, not what its number is: marked at bid time.
+    const support = [fakeBid({ amountCents: FLOOR - 1, sequence: 1, contends: false })];
+    expect(auction.contendersOf(SPOT_SHAPE, support)).toHaveLength(0);
+    expect(auction.holderOf(SPOT_SHAPE, support)).toBeNull();
+    // Still the listed price: support money does not move it.
+    expect(auction.priceOf(SPOT_SHAPE, support)).toBe(FLOOR);
+    // It is the biggest number on the spot, and still not the holder.
+    expect(auction.topBidOf(support)?.amountCents).toBe(FLOOR - 1);
+  });
+
+  it("ignores support when a contender exists, whatever the order", () => {
+    const bids = [
+      fakeBid({ amountCents: FLOOR - 1, sequence: 1, contends: false }),
+      fakeBid({ amountCents: FLOOR, sequence: 2 }),
+    ];
+    expect(auction.holderOf(SPOT_SHAPE, bids)?.amountCents).toBe(FLOOR);
   });
 });
 
@@ -175,54 +207,122 @@ describe("priceOf / minimumBidFor", () => {
  * ------------------------------------------------------------------ */
 
 describe("startBid", () => {
-  it("accepts a first bid at exactly the floor and rejects a cent under it", () => {
+  it("takes any amount from the minimum bid upward", () => {
     seedSpot("door-main");
     const bidder = seedBidder("Ana");
 
-    const short = auction.startBid({
+    const tooSmall = auction.startBid({
       spotKey: "door-main",
       bidderId: bidder.id,
-      amountCents: FLOOR - 1,
+      amountCents: MIN_BID_CENTS - 1,
       now: T0,
     });
-    expect(short.ok).toBe(false);
-    if (short.ok) throw new Error("unreachable");
-    expect(short.reason).toBe("below_minimum");
-    expect(short.minimumNextBidCents).toBe(FLOOR);
+    expect(tooSmall.ok).toBe(false);
+    if (tooSmall.ok) throw new Error("unreachable");
+    expect(tooSmall.reason).toBe("amount_invalid");
 
-    const exact = auction.startBid({
+    // Well under the listed price, and accepted: it becomes support.
+    const support = auction.startBid({
       spotKey: "door-main",
       bidderId: bidder.id,
-      amountCents: FLOOR,
+      amountCents: MIN_BID_CENTS,
       now: T0,
     });
-    expect(exact.ok).toBe(true);
-    if (!exact.ok) throw new Error("unreachable");
-    expect(exact.bid.status).toBe("pending_payment");
-    expect(exact.bid.amountCents).toBe(FLOOR);
+    expect(support.ok).toBe(true);
+    if (!support.ok) throw new Error("unreachable");
+    expect(support.bid.amountCents).toBe(MIN_BID_CENTS);
   });
 
-  it("makes the second bid clear the increment, to the cent", () => {
+  it("asks a full step to take a held spot, and the listed price for an empty one", () => {
+    const spot = seedSpot("door-main");
+    const ana = seedBidder("Ana");
+
+    expect(auction.priceToBeat(spot, [])).toBe(FLOOR);
+
+    placeAndSettle("door-main", ana.id, FLOOR);
+    const paid = store.getPaidBidsForSpot(spot.id);
+    expect(auction.priceToBeat(spot, paid)).toBe(FLOOR + BID_STEP_CENTS);
+  });
+
+  it("takes a bid under the step, and does not give it the panel", () => {
     seedSpot("door-main");
     const ana = seedBidder("Ana");
     const bo = seedBidder("Bo");
     placeAndSettle("door-main", ana.id, FLOOR);
 
-    const minimum = minimumNextBid(FLOOR);
+    // A bigger number than the holder, and still short of the step.
+    placeAndSettle("door-main", bo.id, FLOOR + BID_STEP_CENTS - 1);
+
+    const view = auction.getAuctionState(T0).spots.find((s) => s.key === "door-main");
+    expect(view?.holder?.displayName).toBe("Ana");
+    expect(view?.currentPriceCents).toBe(FLOOR);
+    // Both were charged, so both are money the car took.
+    expect(auction.getAuctionState(T0).totalRaisedCents).toBe(FLOOR * 2 + BID_STEP_CENTS - 1);
+  });
+
+  it("hands the panel over at exactly one step more", () => {
+    seedSpot("door-main");
+    const ana = seedBidder("Ana");
+    const bo = seedBidder("Bo");
+    placeAndSettle("door-main", ana.id, FLOOR);
+    placeAndSettle("door-main", bo.id, FLOOR + BID_STEP_CENTS);
+
+    const view = auction.getAuctionState(T0).spots.find((s) => s.key === "door-main");
+    expect(view?.holder?.displayName).toBe("Bo");
+    expect(view?.currentPriceCents).toBe(FLOOR + BID_STEP_CENTS);
+    expect(view?.priceToBeatCents).toBe(FLOOR + 2 * BID_STEP_CENTS);
+  });
+
+  it("makes the holder pay a full step to raise their own price", () => {
+    seedSpot("door-main");
+    const ana = seedBidder("Ana");
+    placeAndSettle("door-main", ana.id, FLOOR);
+
     const short = auction.startBid({
       spotKey: "door-main",
-      bidderId: bo.id,
-      amountCents: minimum - 1,
+      bidderId: ana.id,
+      amountCents: FLOOR + BID_STEP_CENTS - 1,
       now: T0,
     });
-    expect(short.ok).toBe(false);
-    if (short.ok) throw new Error("unreachable");
-    expect(short.reason).toBe("below_minimum");
-    expect(short.minimumNextBidCents).toBe(minimum);
+    expect(short.ok === false && short.reason).toBe("already_holding");
 
     expect(
-      auction.startBid({ spotKey: "door-main", bidderId: bo.id, amountCents: minimum, now: T0 }).ok,
+      auction.startBid({
+        spotKey: "door-main",
+        bidderId: ana.id,
+        amountCents: FLOOR + BID_STEP_CENTS,
+        now: T0,
+      }).ok,
     ).toBe(true);
+  });
+
+  it("keeps support money off the car and off the price", () => {
+    seedSpot("door-main");
+    const ana = seedBidder("Ana");
+    placeAndSettle("door-main", ana.id, FLOOR - 1);
+
+    const view = auction.getAuctionState(T0).spots.find((s) => s.key === "door-main");
+    expect(view?.holder).toBeNull();
+    expect(view?.currentPriceCents).toBe(FLOOR);
+    expect(view?.status).toBe("open");
+  });
+
+  it("still counts support money as raised", () => {
+    seedSpot("door-main");
+    const ana = seedBidder("Ana");
+    placeAndSettle("door-main", ana.id, FLOOR - 1);
+
+    expect(auction.getAuctionState(T0).totalRaisedCents).toBe(FLOOR - 1);
+  });
+
+  it("closes a spot unsold when only support was paid", () => {
+    seedSpot("door-main", FLOOR, T0 + HOUR);
+    const ana = seedBidder("Ana");
+    placeAndSettle("door-main", ana.id, FLOOR - 1);
+
+    const result = auction.closeAuction(T0 + 2 * HOUR);
+    expect(result.closedSpots).toBe(1);
+    expect(result.winners).toHaveLength(0);
   });
 
   it("leaves price and holder untouched while a bid is unpaid", () => {
@@ -232,7 +332,6 @@ describe("startBid", () => {
 
     const view = auction.getAuctionState(T0).spots.find((s) => s.key === "door-main");
     expect(view?.currentPriceCents).toBe(FLOOR);
-    expect(view?.minimumNextBidCents).toBe(FLOOR);
     expect(view?.bidCount).toBe(0);
     expect(view?.holder).toBeNull();
     expect(view?.status).toBe("open");
@@ -306,7 +405,7 @@ describe("startBid", () => {
       expect(out.ok === false && out.reason).toBe("bidder_unknown");
     });
 
-    it("already_holding: you cannot bid against yourself", () => {
+    it("already_holding: the holder cannot bid at or under their own price", () => {
       seedSpot("door-main");
       const ana = seedBidder("Ana");
       placeAndSettle("door-main", ana.id, FLOOR);
@@ -314,10 +413,25 @@ describe("startBid", () => {
       const out = auction.startBid({
         spotKey: "door-main",
         bidderId: ana.id,
-        amountCents: minimumNextBid(FLOOR) * 2,
+        amountCents: FLOOR,
         now: T0,
       });
       expect(out.ok === false && out.reason).toBe("already_holding");
+    });
+
+    it("lets the holder raise their own price", () => {
+      seedSpot("door-main");
+      const ana = seedBidder("Ana");
+      placeAndSettle("door-main", ana.id, FLOOR);
+
+      // The dialog has always offered this; the engine used to refuse it.
+      const out = auction.startBid({
+        spotKey: "door-main",
+        bidderId: ana.id,
+        amountCents: beats(FLOOR),
+        now: T0,
+      });
+      expect(out.ok).toBe(true);
     });
 
     it("lets the outbid bidder come back", () => {
@@ -325,12 +439,12 @@ describe("startBid", () => {
       const ana = seedBidder("Ana");
       const bo = seedBidder("Bo");
       placeAndSettle("door-main", ana.id, FLOOR);
-      placeAndSettle("door-main", bo.id, minimumNextBid(FLOOR));
+      placeAndSettle("door-main", bo.id, beats(FLOOR));
 
       const out = auction.startBid({
         spotKey: "door-main",
         bidderId: ana.id,
-        amountCents: minimumNextBid(minimumNextBid(FLOOR)),
+        amountCents: beats(beats(FLOOR)),
         now: T0,
       });
       expect(out.ok).toBe(true);
@@ -359,7 +473,7 @@ describe("settleBid", () => {
     expect(first.result.becameHolder).toBe(true);
     expect(first.result.displacedBidId).toBeNull();
 
-    const second = placeAndSettle("door-main", bo.id, minimumNextBid(FLOOR));
+    const second = placeAndSettle("door-main", bo.id, beats(FLOOR));
     expect(second.result.becameHolder).toBe(true);
     expect(second.result.displacedBidId).toBe(first.bid.id);
 
@@ -369,7 +483,7 @@ describe("settleBid", () => {
     expect(store.getSpotById(spot.id)?.status).toBe("held");
 
     const view = auction.getAuctionState(T0).spots.find((s) => s.key === "door-main");
-    expect(view?.currentPriceCents).toBe(minimumNextBid(FLOOR));
+    expect(view?.currentPriceCents).toBe(beats(FLOOR));
     expect(view?.holder?.displayName).toBe("Bo");
     // Cumulative: the displaced bid was real money and still counts.
     expect(view?.bidCount).toBe(2);
@@ -424,7 +538,7 @@ describe("settleBid", () => {
     const ana = seedBidder("Ana");
     const bo = seedBidder("Bo");
     const first = placeAndSettle("door-main", ana.id, FLOOR);
-    const second = placeAndSettle("door-main", bo.id, minimumNextBid(FLOOR));
+    const second = placeAndSettle("door-main", bo.id, beats(FLOOR));
 
     const replay = auction.settleBid({ bidId: second.bid.id, paymentIntentId: `pi_${second.bid.id}`, now: T0 + 60_000 });
     expect(replay).toEqual(second.result);
@@ -442,7 +556,7 @@ describe("settleBid", () => {
     const ana = seedBidder("Ana");
     const bo = seedBidder("Bo");
     const first = placeAndSettle("door-main", ana.id, FLOOR);
-    const second = placeAndSettle("door-main", bo.id, minimumNextBid(FLOOR));
+    const second = placeAndSettle("door-main", bo.id, beats(FLOOR));
 
     auction.markRefunded(first.bid.id, "re_1", T0 + 10);
     const replay = settle(second.bid.id, T0 + 20);
@@ -455,7 +569,7 @@ describe("settleBid", () => {
     const ana = seedBidder("Ana");
     const bo = seedBidder("Bo");
     const first = placeAndSettle("door-main", ana.id, FLOOR);
-    placeAndSettle("door-main", bo.id, minimumNextBid(FLOOR));
+    placeAndSettle("door-main", bo.id, beats(FLOOR));
 
     const replay = settle(first.bid.id, T0 + 30);
     expect(replay.becameHolder).toBe(false);
@@ -554,7 +668,7 @@ describe("anti-snipe", () => {
     const ana = seedBidder("Ana");
     const bo = seedBidder("Bo");
     placeAndSettle("door-main", ana.id, FLOOR, T0);
-    placeAndSettle("door-main", bo.id, minimumNextBid(FLOOR), T0 + 1000);
+    placeAndSettle("door-main", bo.id, beats(FLOOR), T0 + 1000);
 
     // each extension restarts the same window from the latest bid; two bids a
     // second apart buy one window, not two
@@ -574,7 +688,7 @@ describe("markRefunded", () => {
     const ana = seedBidder("Ana");
     const bo = seedBidder("Bo");
     const first = placeAndSettle("door-main", ana.id, FLOOR);
-    placeAndSettle("door-main", bo.id, minimumNextBid(FLOOR));
+    placeAndSettle("door-main", bo.id, beats(FLOOR));
 
     const refunded = auction.markRefunded(first.bid.id, "re_1", T0 + 10);
     expect(refunded?.status).toBe("refunded");
@@ -706,10 +820,10 @@ describe("getAuctionState", () => {
     const ana = seedBidder("Ana");
     const bo = seedBidder("Bo");
     placeAndSettle("door-main", ana.id, FLOOR);
-    placeAndSettle("door-main", bo.id, minimumNextBid(FLOOR));
+    placeAndSettle("door-main", bo.id, beats(FLOOR));
 
     // the outbid bid leaves LIVE status the moment it is displaced
-    expect(auction.getAuctionState(T0).totalRaisedCents).toBe(minimumNextBid(FLOOR));
+    expect(auction.getAuctionState(T0).totalRaisedCents).toBe(beats(FLOOR));
   });
 
   it("shows a logo only once a human approved it", () => {
@@ -779,7 +893,7 @@ describe("closeAuction", () => {
     const ana = seedBidder("Ana");
     const bo = seedBidder("Bo");
     const loser = placeAndSettle("door-main", ana.id, FLOOR);
-    const winner = placeAndSettle("door-main", bo.id, minimumNextBid(FLOOR));
+    const winner = placeAndSettle("door-main", bo.id, beats(FLOOR));
 
     const first = auction.closeAuction(T0 + 2 * HOUR);
     expect(first.closedSpots).toBe(1);
@@ -788,7 +902,7 @@ describe("closeAuction", () => {
         spotKey: "door-main",
         bidId: winner.bid.id,
         bidderId: bo.id,
-        amountCents: minimumNextBid(FLOOR),
+        amountCents: beats(FLOOR),
       },
     ]);
     expect(first.refundedBidIds).toEqual([loser.bid.id]);
@@ -835,7 +949,7 @@ describe("closeAuction", () => {
     const ana = seedBidder("Ana");
     const bo = seedBidder("Bo");
     const loser = placeAndSettle("door-main", ana.id, FLOOR);
-    placeAndSettle("door-main", bo.id, minimumNextBid(FLOOR));
+    placeAndSettle("door-main", bo.id, beats(FLOOR));
     auction.markRefunded(loser.bid.id, "re_1", T0 + 5);
 
     expect(auction.closeAuction(T0 + 2 * HOUR).refundedBidIds).toEqual([]);

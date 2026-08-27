@@ -140,7 +140,10 @@ CREATE TABLE IF NOT EXISTS bids (
   created_at                 INTEGER NOT NULL,
   paid_at                    INTEGER,
   refunded_at                INTEGER,
-  sequence                   INTEGER NOT NULL
+  sequence                   INTEGER NOT NULL,
+  -- 1 when this bid cleared the price to beat at the moment it was placed.
+  -- NULL on rows written before the column existed.
+  contends                   INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS artwork (
@@ -195,6 +198,7 @@ const ADDITIONS: ReadonlyArray<{ table: string; column: string; ddl: string }> =
   { table: "spots", column: "shape", ddl: "ALTER TABLE spots ADD COLUMN shape TEXT" },
   { table: "spots", column: "difficulty", ddl: "ALTER TABLE spots ADD COLUMN difficulty TEXT" },
   { table: "bidders", column: "link", ddl: "ALTER TABLE bidders ADD COLUMN link TEXT" },
+  { table: "bids", column: "contends", ddl: "ALTER TABLE bids ADD COLUMN contends INTEGER" },
 ];
 
 function migrate(handle: Database.Database): void {
@@ -287,6 +291,15 @@ export interface PaidBidRow {
   spot_key: string;
   spot_name: string;
   artwork_id: string | null;
+  /**
+   * The bid actually holding this row's spot, or null if nothing does.
+   *
+   * Status cannot answer this any more. A bid under the spot's listed price is
+   * support: it is never swept to `outbid`, because it was never in contention
+   * and is owed nothing, so it stays `paid` for good. Reading `paid` as "holds
+   * the panel" would put a one-euro bid on the car.
+   */
+  holder_bid_id: string | null;
 }
 
 interface BidRow {
@@ -302,6 +315,7 @@ interface BidRow {
   paid_at: number | null;
   refunded_at: number | null;
   sequence: number;
+  contends: number | null;
 }
 
 interface ArtworkRow {
@@ -369,6 +383,7 @@ function toBid(row: BidRow): Bid {
     paidAt: row.paid_at,
     refundedAt: row.refunded_at,
     sequence: row.sequence,
+    contends: row.contends === null ? null : row.contends !== 0,
   };
 }
 
@@ -674,7 +689,13 @@ export function listPaidBids(): PaidBidRow[] {
             s.name          AS spot_name,
             (SELECT a.id FROM artwork a
               WHERE a.bid_id = b.id AND a.review_status = 'approved'
-              ORDER BY a.created_at DESC LIMIT 1) AS artwork_id
+              ORDER BY a.created_at DESC LIMIT 1) AS artwork_id,
+            (SELECT c.id FROM bids c
+              WHERE c.spot_id = b.spot_id
+                AND c.status IN ('paid', 'won')
+                AND (c.contends = 1
+                     OR (c.contends IS NULL AND c.amount_cents >= s.floor_price_cents))
+              ORDER BY c.amount_cents DESC, c.sequence ASC LIMIT 1) AS holder_bid_id
        FROM bids b
        JOIN bidders d ON d.id = b.bidder_id
        JOIN spots   s ON s.id = b.spot_id
@@ -689,7 +710,7 @@ export function listPaidBids(): PaidBidRow[] {
 
 const BID_FIELDS = `id, spot_id, bidder_id, amount_cents, status, stripe_checkout_session_id,
                     stripe_payment_intent_id, stripe_refund_id, created_at, paid_at,
-                    refunded_at, sequence`;
+                    refunded_at, sequence, contends`;
 
 /**
  * Inserts a bid, allocating its per-spot sequence in the same transaction.
@@ -706,6 +727,9 @@ export function insertBid(input: {
   status?: BidStatus;
   stripeCheckoutSessionId?: string | null;
   stripePaymentIntentId?: string | null;
+  /** Whether this bid cleared the price to beat. Decided by the caller, which
+   *  is the only place that knows what the price to beat was. */
+  contends?: boolean;
   id?: string;
   createdAt?: number;
 }): Bid {
@@ -727,13 +751,14 @@ export function insertBid(input: {
       paidAt: null,
       refundedAt: null,
       sequence: next?.next ?? 1,
+      contends: input.contends ?? false,
     };
 
     stmt(
       `INSERT INTO bids (id, spot_id, bidder_id, amount_cents, status,
                          stripe_checkout_session_id, stripe_payment_intent_id, stripe_refund_id,
-                         created_at, paid_at, refunded_at, sequence)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                         created_at, paid_at, refunded_at, sequence, contends)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       bid.id,
       bid.spotId,
@@ -747,6 +772,7 @@ export function insertBid(input: {
       bid.paidAt,
       bid.refundedAt,
       bid.sequence,
+      bid.contends ? 1 : 0,
     );
 
     return bid;

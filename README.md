@@ -104,14 +104,26 @@ Sources: [Signature Graphics](https://signaturegraphicsinc.com/how-much-do-custo
 [Complete Graphics](https://www.completegraphics.us/post/vinyl-lettering-cost-per-square-foot),
 [Signs101 trade discussion](https://www.signs101.com/threads/how-much-to-charge-per-square-inch.150266/).
 
-### Increments
+### What a bid buys
 
-5% of the standing price, with a €10 minimum.
+Any amount from **€1** up is accepted and charged. What it buys depends on how
+it compares to the price to beat, which is the listed price while nobody holds
+the spot and a flat **€1** more than the holder once somebody does.
 
-At a €5 floor the minimum bites hard: the opening bid is €5 and the next one is
-€15. That is a deliberate consequence of a flat cheap floor, but if the jump is
-too steep, `MIN_INCREMENT_CENTS` in `src/lib/money.ts` is the one number to
-change.
+| Bid | Result |
+|---|---|
+| under €1 | refused before it reaches Stripe |
+| below the price to beat | charged and kept, listed on the bidders roll, never on the car |
+| at or above it, and highest | takes the panel |
+
+Both numbers live in `src/lib/money.ts` as `MIN_BID_CENTS` and
+`BID_STEP_CENTS`.
+
+Whether a bid was a real attempt on the panel is decided **when it is placed**
+and stored on the row as `contends`. It cannot be re-derived from the amount
+afterwards: a €10.50 bid against a €10 holder is the larger number and still
+did not clear the step, so ranking by amount alone would hand it a panel it
+never won.
 
 ### Anti-snipe
 

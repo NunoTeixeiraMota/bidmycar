@@ -48,20 +48,30 @@ export function parseMoneyToCents(input: string): number | null {
 }
 
 /**
- * Bid increment. Spots open between €90 and €155, so a fixed ladder tuned for
- * a five-figure car would be nonsense here: the step is a percentage of the
- * standing price with a hard floor, which keeps early bidding meaningful and
- * stops a €400 spot being nudged up in €5 increments.
+ * The smallest bid the auction takes.
+ *
+ * There is no increment ladder and no minimum next bid: any amount from this
+ * upward is accepted and charged. Whether it takes the panel is decided in
+ * auction.ts, by comparing it against the spot's listed price and against the
+ * other bids, not by a rule about how much more it has to be than the last one.
+ *
+ * It sits above Stripe's own processing minimum of roughly fifty cents, so a
+ * bid that passes here is one Stripe will actually charge.
+ *
+ * It lives in this module rather than in auction.ts because the bid dialog
+ * needs it in the browser, and auction.ts reaches the database: importing that
+ * from a client component drags better-sqlite3 into the client bundle.
  */
-export const MIN_INCREMENT_CENTS = 1000; // €10
-export const INCREMENT_PERCENT = 0.05;   // 5%
+export const MIN_BID_CENTS = 100;
 
-export function incrementFor(currentCents: number): number {
-  const pct = Math.ceil((currentCents * INCREMENT_PERCENT) / 100) * 100; // whole euros
-  return Math.max(MIN_INCREMENT_CENTS, pct);
-}
-
-/** The smallest bid that beats `currentCents`. */
-export function minimumNextBid(currentCents: number): number {
-  return currentCents + incrementFor(currentCents);
-}
+/**
+ * How much more than the standing price it takes to win a panel.
+ *
+ * A flat euro, not a percentage: at these amounts a percentage step is either
+ * invisible or absurd, and "one euro more than the last one" is a rule anybody
+ * can hold in their head while typing.
+ *
+ * It gates taking the spot, not bidding. Less than this is still accepted and
+ * still charged; it just joins the roll instead of the car.
+ */
+export const BID_STEP_CENTS = 100;

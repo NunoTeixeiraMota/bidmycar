@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { linkLabel } from "@/lib/link";
 import { formatMoney } from "@/lib/money";
 import type { RollEntry } from "@/lib/types";
@@ -27,6 +27,17 @@ export interface BidderRollProps {
 const FOCUS_RING =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal";
 
+/** How many rows a read brings back. The server clamps anything larger. */
+const PAGE = 25;
+
+/** One page of the roll, as the endpoint returns it. */
+interface RollPage {
+  entries: RollEntry[];
+  total: number;
+  hasMore: boolean;
+  totalPaidCents: number;
+}
+
 /** rank, bidder, spot, amount */
 const ROW =
   "grid grid-cols-[2rem_1fr_auto] items-center gap-x-4 gap-y-1 " +
@@ -40,37 +51,84 @@ function initialsOf(name: string): string {
 
 export default function BidderRoll({ revision, className = "" }: BidderRollProps) {
   const [entries, setEntries] = useState<RollEntry[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const [totalPaidCents, setTotalPaidCents] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   /** Nothing is written to state before the fetch resolves, which keeps the
    *  effect below a subscription rather than a synchronous render cascade. */
-  const load = useCallback(async () => {
-    let next: RollEntry[] | null = null;
+  const read = useCallback(async (offset: number, limit: number): Promise<RollPage | null> => {
     try {
-      const response = await fetch("/api/auction/roll", { cache: "no-store" });
-      if (response.ok) next = ((await response.json()) as { entries: RollEntry[] }).entries;
+      const response = await fetch(`/api/auction/roll?offset=${offset}&limit=${limit}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) return null;
+      return (await response.json()) as RollPage;
     } catch {
-      next = null;
+      return null;
     }
+  }, []);
 
-    if (next === null) {
+  /**
+   * How many rows are on screen.
+   *
+   * Written by the two loaders rather than mirrored from `entries` during
+   * render, so neither of them has to depend on the list it is replacing. A
+   * dependency on the list would rebuild `refresh` on every page and re-fire
+   * the effect below, which would page forever.
+   */
+  const shownRef = useRef(0);
+
+  /**
+   * Re-read from the top, keeping however many rows are already on screen.
+   *
+   * A settled bid can land anywhere in an ordering by amount, so refreshing
+   * only the first page would leave a stale tail below a fresh head. Asking for
+   * what is already shown keeps the whole visible list consistent.
+   */
+  const refresh = useCallback(async () => {
+    const page = await read(0, Math.max(PAGE, Math.min(shownRef.current, 100)));
+
+    if (page === null) {
       setFailed(true);
       return;
     }
+    shownRef.current = page.entries.length;
     setFailed(false);
-    setEntries(next);
-  }, []);
+    setEntries(page.entries);
+    setTotal(page.total);
+    setTotalPaidCents(page.totalPaidCents);
+    setHasMore(page.hasMore);
+  }, [read]);
+
+  const loadMore = useCallback(async () => {
+    setLoadingMore(true);
+    const page = await read(shownRef.current, PAGE);
+    setLoadingMore(false);
+
+    if (page === null) {
+      setFailed(true);
+      return;
+    }
+    shownRef.current += page.entries.length;
+    setFailed(false);
+    setEntries((current) => [...(current ?? []), ...page.entries]);
+    setTotal(page.total);
+    setTotalPaidCents(page.totalPaidCents);
+    setHasMore(page.hasMore);
+  }, [read]);
 
   useEffect(() => {
     void (async () => {
-      await load();
+      await refresh();
     })();
     // `revision` moves when a bid settles, which is the only thing that can
     // change the roll.
-  }, [load, revision]);
+  }, [refresh, revision]);
 
   const headingId = "bidders-heading";
-  const total = entries?.reduce((sum, entry) => sum + entry.amountCents, 0) ?? 0;
 
   return (
     <section aria-labelledby={headingId} className={className}>
@@ -80,14 +138,16 @@ export default function BidderRoll({ revision, className = "" }: BidderRollProps
         </h2>
         {entries && entries.length > 0 ? (
           <p className="tabular text-[14px] text-muted">
-            {entries.length} bid{entries.length === 1 ? "" : "s"} · {formatMoney(total)} paid
+            {total} bid{total === 1 ? "" : "s"} · {formatMoney(totalPaidCents)} paid
           </p>
         ) : null}
       </div>
 
-      <p className="mt-3 max-w-[60ch] text-[14px] leading-[1.55] text-muted">
+      <p className="mt-3 max-w-[62ch] text-[14px] leading-[1.55] text-muted">
         Every bid ever placed on this car, largest first. Being outbid does not take you off this
-        list, because being outbid does not get you your money back.
+        list, because being outbid does not get you your money back. Neither does bidding under
+        what a panel is going for: that money is kept and counted here, it just does not put your
+        logo on the car.
       </p>
 
       {entries === null ? (
@@ -184,6 +244,25 @@ export default function BidderRoll({ revision, className = "" }: BidderRollProps
               );
             })}
           </ul>
+
+          {hasMore ? (
+            <div className="mt-8 flex justify-center">
+              <button
+                type="button"
+                onClick={() => void loadMore()}
+                disabled={loadingMore}
+                className={`btn btn-secondary btn-md ${FOCUS_RING}`}
+              >
+                {loadingMore
+                  ? "Loading…"
+                  : `Show ${Math.min(PAGE, total - entries.length)} more`}
+              </button>
+            </div>
+          ) : null}
+
+          <p className="mt-6 text-center text-[12px] text-faint" aria-live="polite">
+            Showing {entries.length} of {total}
+          </p>
         </>
       )}
     </section>
