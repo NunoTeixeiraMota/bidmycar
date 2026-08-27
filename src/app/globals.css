@@ -1,0 +1,169 @@
+@import "tailwindcss";
+
+/*
+  Design system: "Showroom"
+  Apple product-page language — near-white canvas, near-black ink, one blue
+  signal accent, huge light display type, full-bleed product photography.
+  Every colour the app uses is declared here. Re-skinning = editing this block.
+*/
+
+@theme {
+  /* Surfaces */
+  --color-canvas: #ffffff;
+  --color-haze: #f5f5f7;
+  --color-slate: #e8e8ed;
+  --color-obsidian: #000000;
+  --color-graphite: #1d1d1f;
+
+  /* Ink */
+  --color-ink: #1d1d1f;
+  --color-muted: #6e6e73;
+  --color-faint: #86868b;
+  --color-hairline: #d2d2d7;
+
+  /* Signal */
+  --color-signal: #0071e3;
+  --color-signal-hover: #0077ed;
+  --color-live: #d8342a;
+  --color-good: #128a3c;
+
+  /* Type */
+  --font-display: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: var(--font-mono-face), ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Motion — Apple's ease, slow and decelerating */
+  --ease-showroom: cubic-bezier(0.28, 0.11, 0.32, 1);
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  body {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-display);
+    letter-spacing: -0.011em;
+  }
+
+  ::selection {
+    background: var(--color-ink);
+    color: var(--color-canvas);
+  }
+
+  /* Numbers must not jitter as a countdown ticks or a bid climbs. */
+  .tabular { font-variant-numeric: tabular-nums; }
+}
+
+@layer components {
+  /* Apple's display type: very large, tight, and NOT bold. */
+  .display-xl {
+    font-size: clamp(3rem, 9vw, 6.5rem);
+    line-height: 1.04;
+    letter-spacing: -0.025em;
+    font-weight: 600;
+  }
+  .display-lg {
+    font-size: clamp(2.25rem, 5.5vw, 3.75rem);
+    line-height: 1.07;
+    letter-spacing: -0.022em;
+    font-weight: 600;
+  }
+  .display-md {
+    font-size: clamp(1.65rem, 3.2vw, 2.5rem);
+    line-height: 1.12;
+    letter-spacing: -0.018em;
+    font-weight: 600;
+  }
+
+  /* Apple's "intro" paragraph under a headline. */
+  .lede {
+    font-size: clamp(1.05rem, 1.7vw, 1.4rem);
+    line-height: 1.45;
+    letter-spacing: -0.012em;
+    color: var(--color-muted);
+  }
+
+  .eyebrow {
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--color-signal);
+  }
+
+  /* Pill CTA, Apple-blue. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 980px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    transition: background-color 220ms var(--ease-showroom),
+                color 220ms var(--ease-showroom),
+                opacity 220ms var(--ease-showroom),
+                transform 220ms var(--ease-showroom);
+  }
+  .btn:active:not(:disabled) { transform: scale(0.975); }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .btn-primary { background: var(--color-signal); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--color-signal-hover); }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--color-signal);
+    border: 1px solid var(--color-signal);
+  }
+  .btn-secondary:hover:not(:disabled) { background: var(--color-signal); color: #fff; }
+
+  .btn-dark { background: var(--color-ink); color: #fff; }
+  .btn-dark:hover:not(:disabled) { background: #000; }
+
+  .btn-lg { padding: 0.95rem 2rem; font-size: 1.0625rem; }
+  .btn-md { padding: 0.7rem 1.4rem; font-size: 0.9375rem; }
+  .btn-sm { padding: 0.45rem 1rem; font-size: 0.8125rem; }
+
+  /* Section rhythm — Apple breathes. */
+  .section { padding-block: clamp(5rem, 11vw, 9.5rem); }
+  .shell { width: 100%; max-width: 1120px; margin-inline: auto; padding-inline: 1.5rem; }
+  .shell-wide { width: 100%; max-width: 1440px; margin-inline: auto; padding-inline: 1.5rem; }
+}
+
+@layer utilities {
+  /* Scroll-reveal: elements start displaced, .is-visible lands them. */
+  .reveal {
+    opacity: 0;
+    transform: translateY(26px);
+    transition: opacity 900ms var(--ease-showroom), transform 900ms var(--ease-showroom);
+    will-change: opacity, transform;
+  }
+  .reveal.is-visible { opacity: 1; transform: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; }
+  }
+
+  .hairline-t { border-top: 1px solid var(--color-hairline); }
+  .hairline-b { border-bottom: 1px solid var(--color-hairline); }
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+.live-dot { animation: live-pulse 2s var(--ease-showroom) infinite; }
