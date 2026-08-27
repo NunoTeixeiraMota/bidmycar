@@ -7,7 +7,7 @@ import { getArtworkById, getSpotById, updateArtwork } from "@/lib/db";
  * Approve or reject one uploaded logo.
  *
  * This decision is the gate between a stranger's file and a vinyl cutter, so it
- * is a deliberate human act with a token behind it — nothing here is automated
+ * is a deliberate human act with a token behind it. Nothing here is automated
  * and nothing is approved by default. Rejecting keeps the row and its reason:
  * the bidder is shown why, and re-uploading supersedes rather than erases.
  */
@@ -19,7 +19,7 @@ type Gate = { ok: true } | { ok: false; response: Response };
 
 /**
  * The admin gate, repeated in each admin route because a route file may export
- * only route handlers — there is nowhere shared to put it that Next will accept.
+ * only route handlers; there is nowhere shared to put it that Next will accept.
  *
  * An unset ADMIN_TOKEN closes the console rather than opening it.
  */

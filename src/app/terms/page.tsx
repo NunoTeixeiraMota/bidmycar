@@ -6,8 +6,8 @@ import { AUCTION, CAR } from "@/config/car";
 export const metadata: Metadata = {
   title: "Auction conditions",
   description:
-    "The conditions of the Brand My Datsun spot auction: immediate charges, automatic refunds " +
-    "on being outbid, artwork moderation, and how long vinyl stays on the car.",
+    "The conditions of the Brand My Datsun spot auction: immediate charges, no refunds " +
+    "when you are outbid, artwork moderation, and how long vinyl stays on the car.",
 };
 
 const UPDATED = "27 August 2026";
@@ -65,19 +65,18 @@ const CLAUSES: Clause[] = [
   },
   {
     id: "outbid",
-    heading: "3. Being outbid, and refunds",
+    heading: "3. Being outbid",
     body: (
       <>
         <p>
           Each spot is held by exactly one bidder: whoever has paid the highest amount for it. When
-          somebody pays more than you for the spot you are holding, you lose the spot at that moment
-          and the full amount you paid is refunded to the card you paid with, automatically. You do
-          not need to request it, and nothing is deducted &mdash; not our fees, not Stripe&rsquo;s.
+          somebody pays more than you for the spot you are holding, you lose the spot at that
+          moment. What you paid is not refunded, in whole or in part.
         </p>
         <p>
-          Refunds are issued as soon as the displacing payment settles. How quickly the money
-          reappears on your statement is your bank&rsquo;s business rather than ours; five to ten
-          working days is normal.
+          This is the central term of the auction and you should read it twice before you bid. A
+          bid buys you the position for as long as you can hold it, not a place in a queue with
+          your money set aside. Bid only what you are willing to lose to a higher bidder.
         </p>
         <p>
           Where two bids of the same amount are received for the same spot, the earlier one holds
@@ -93,7 +92,7 @@ const CLAUSES: Clause[] = [
     body: (
       <>
         <p>
-          Every spot closes at its own published time. A bid placed within the final{" "}
+          Every spot closes at the same published time. A bid placed within the final{" "}
           {AUCTION.snipeWindowMs / 60000} minutes pushes that spot&rsquo;s closing time out by a
           further {AUCTION.extensionMs / 60000} minutes from the moment of the bid, up to{" "}
           {AUCTION.maxExtensions} times. Extending one spot does not extend any other.
@@ -120,7 +119,7 @@ const CLAUSES: Clause[] = [
           A person looks at every upload before it goes anywhere near the car. We will reject
           artwork that is unlawful, that infringes somebody else&rsquo;s mark, that is hateful,
           sexual, deceptive, or that impersonates a real organisation, and we will reject artwork
-          for reasons no narrower than not wanting to drive around with it &mdash; this is a car we
+          for reasons no narrower than not wanting to drive around with it. This is a car we
           park outside our home. Rejection comes with a reason and an invitation to supply something
           else.
         </p>
@@ -221,7 +220,7 @@ const CLAUSES: Clause[] = [
         <p>
           What you are owed if we get this wrong is the money you paid us, refunded. We are not
           liable for indirect or consequential loss, for lost profit, or for advertising outcomes
-          &mdash; nobody is promising you impressions, clicks, leads or anything measurable. You are
+          because nobody is promising you impressions, clicks, leads or anything measurable. You are
           buying a sticker on a small red car.
         </p>
         <p>
@@ -315,7 +314,7 @@ export default function TermsPage() {
 
           <div className="hairline-t mt-4 max-w-[680px] pt-10">
             <p className="text-[15px] text-muted">
-              Something here unclear? Ask before you bid &mdash;{" "}
+              Something here unclear? Ask before you bid:{" "}
               <a
                 href="mailto:hello@brandmydatsun.com"
                 className="rounded-sm text-signal hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-signal"
@@ -327,9 +326,6 @@ export default function TermsPage() {
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href="/#spots" className="btn btn-primary btn-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal">
                 See the spots
-              </Link>
-              <Link href="/how-it-works" className="btn btn-secondary btn-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal">
-                How it works
               </Link>
             </div>
           </div>

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import Analytics from "@/components/Analytics";
 import Nav from "@/components/Nav";
 import Footer from "@/components/Footer";
 import { CAR } from "@/config/car";
@@ -24,8 +25,8 @@ const mono = JetBrains_Mono({
 const SITE_NAME = "Brand My Datsun";
 const DESCRIPTION =
   "Eleven regions of a 1974 Datsun 100A are sold as advertising space. Bid on a spot, " +
-  "hold it until its clock stops, and your logo is cut in vinyl and applied to the real car. " +
-  "Outbid means an automatic refund.";
+  "hold it until the clock stops, and your logo is cut in vinyl and applied to the real car. " +
+  "Bids are payments, and they are not refunded if you are outbid.";
 
 // Relative OG paths are resolved against this; without it Next emits a build
 // warning and social crawlers get a broken image URL.
@@ -34,7 +35,7 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: `${SITE_NAME} — advertising space on a 1974 Datsun 100A`,
+    default: `${SITE_NAME}: advertising space on a 1974 Datsun 100A`,
     template: `%s · ${SITE_NAME}`,
   },
   description: DESCRIPTION,
@@ -51,7 +52,7 @@ export const metadata: Metadata = {
     type: "website",
     siteName: SITE_NAME,
     url: siteUrl,
-    title: `${SITE_NAME} — eleven spots on a ${CAR.name}`,
+    title: `${SITE_NAME}: eleven spots on a ${CAR.name}`,
     description: DESCRIPTION,
     locale: "en_IE",
     images: [
@@ -65,7 +66,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: `${SITE_NAME} — eleven spots on a ${CAR.name}`,
+    title: `${SITE_NAME}: eleven spots on a ${CAR.name}`,
     description: DESCRIPTION,
     images: [CAR.photo],
   },
@@ -102,6 +103,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           {children}
         </div>
         <Footer />
+        <Analytics />
       </body>
     </html>
   );

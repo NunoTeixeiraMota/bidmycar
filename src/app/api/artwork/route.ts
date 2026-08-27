@@ -13,7 +13,7 @@ import type { BidStatus } from "@/lib/types";
  * Two gates, in this order: the cookie must prove the uploader is the bidder
  * whose bid this is, and that bid must actually hold its spot. Artwork attached
  * to a bid that never paid, or that has since been outbid, would sit in the
- * review queue as work for a human and — once approved — as a logo the board is
+ * review queue as work for a human and, once approved, as a logo the board is
  * ready to composite for someone who is owed a refund instead.
  *
  * The bytes themselves are not judged here. `validateUpload` sniffs them, and
@@ -47,7 +47,7 @@ export async function POST(req: Request): Promise<Response> {
   const bidderId = verifyBidderCookie(jar.get(SESSION_COOKIE)?.value);
   if (!bidderId) {
     return NextResponse.json(
-      { error: "Open this page in the browser you bid from — we couldn't tell who you are." },
+      { error: "Open this page in the browser you bid from. We couldn't tell who you are." },
       { status: 401 },
     );
   }
@@ -121,7 +121,7 @@ export async function POST(req: Request): Promise<Response> {
     );
   } catch (err) {
     // Only reachable if the two validations disagree, which would be a bug here
-    // rather than a bad file — but the uploader still gets the readable reason.
+    // rather than a bad file, but the uploader still gets the readable reason.
     if (err instanceof UploadValidationError) {
       return NextResponse.json(
         { error: err.rejection.message, reason: err.rejection.reason },

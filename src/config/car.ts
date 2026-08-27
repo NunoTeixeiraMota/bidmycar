@@ -1,5 +1,5 @@
 /**
- * The car, the spots on it, and how a spot's floor price is derived.
+ * The car and the spots on it.
  *
  * Editing this file is how you list a different vehicle: replace the photo,
  * re-measure the spots against it, and everything downstream follows.
@@ -20,15 +20,17 @@ export const CAR = {
 } as const;
 
 /* ------------------------------------------------------------------ *
- * Pricing
+ * Costing
  *
- * A spot opens at what it genuinely costs to put that logo on the car:
- * artwork setup, the vinyl itself, and the labour to apply it to painted
- * bodywork. Nothing above that is asked for at the floor — prominence is
- * priced by the bidding, not by us.
+ * Every spot opens at the same price (AUCTION.openingPriceCents), whatever
+ * size it is: the bidding decides what a panel is worth, not us.
  *
- * Rates below are the mid-market figures for one-off custom vehicle
- * graphics; see README for sources.
+ * The rates below no longer set that opening price. They are kept because they
+ * are what a spot actually costs to produce, which is worth knowing when
+ * deciding whether a winning bid covers its own vinyl.
+ *
+ * Rates are the mid-market figures for one-off custom vehicle graphics; see
+ * README for sources.
  * ------------------------------------------------------------------ */
 
 export const VINYL_PRICING = {
@@ -65,65 +67,71 @@ export interface SpotDefinition {
   shape?: "rect" | "ellipse";
 }
 
+/* SPOTS:START -- rewritten by `npm run spots:export`; edit by hand or by
+   dragging in /admin, but keep these two markers where they are. */
 export const SPOTS: readonly SpotDefinition[] = [
   {
-    key: "door-main", name: "Door panel", panel: "Driver's door",
-    blurb: "The largest flat panel on the car and the one every photograph is framed around.",
-    x: 48.934, y: 53.677, w: 14.41, h: 14.414, difficulty: "flat",
-  },
-  {
-    key: "front-wing", name: "Front wing", panel: "Front nearside wing",
-    blurb: "Ahead of the door, above the front wheel. Reads clearly in three-quarter shots.",
-    x: 67.08, y: 48.272, w: 10.674, h: 11.711, difficulty: "curved",
-  },
-  {
-    key: "rear-quarter", name: "Rear quarter", panel: "Rear quarter panel",
-    blurb: "The fastback's broadest shoulder, directly beneath the signature vents.",
-    x: 14.778, y: 39.263, w: 10.674, h: 10.81, difficulty: "curved",
-  },
-  {
-    key: "sill", name: "Rocker banner", panel: "Sill",
-    blurb: "A full-length banner running the wheelbase. Long, low, and unmissable in profile.",
-    x: 30.255, y: 69.892, w: 28.819, h: 4.684, difficulty: "mild",
-  },
-  {
-    key: "quarter-glass", name: "Quarter glass", panel: "Rear side window",
-    blurb: "Cut vinyl on glass. Cheapest to apply and the easiest to remove cleanly.",
-    x: 26.52, y: 23.047, w: 10.674, h: 9.009, difficulty: "glass",
-  },
-  {
-    key: "roundel", name: "Racing roundel", panel: "Front wing roundel",
-    blurb: "The competition number circle. Small, central, and the most looked-at spot on the car.",
-    x: 77.22, y: 30.795, w: 4.483, h: 6.486, difficulty: "curved", shape: "ellipse",
-  },
-  {
-    key: "bonnet", name: "Bonnet", panel: "Bonnet",
-    blurb: "The nose. Seen head-on and from the driver's seat of the car behind.",
-    x: 82.023, y: 38.362, w: 7.472, h: 5.766, difficulty: "mild",
+    key: "front-side", name: "Front side", panel: "Front side",
+    blurb: "",
+    x: 79.34, y: 44.427, w: 10, h: 10, difficulty: "mild",
   },
   {
     key: "front-lower", name: "Front lower wing", panel: "Lower front wing",
     blurb: "Below the swage line, ahead of the wheel. A classic rally sponsor position.",
-    x: 79.888, y: 55.478, w: 7.472, h: 7.567, difficulty: "curved",
+    x: 67.372, y: 58.842, w: 7.472, h: 7.567, difficulty: "curved",
+  },
+  {
+    key: "front-wing", name: "Front wing", panel: "Front nearside wing",
+    blurb: "Ahead of the door, above the front wheel. Reads clearly in three-quarter shots.",
+    x: 67.08, y: 45.367, w: 10.674, h: 11.711, difficulty: "curved",
+  },
+  {
+    key: "door-main", name: "Door panel", panel: "Driver's door",
+    blurb: "The largest flat panel on the car and the one every photograph is framed around.",
+    x: 47.55, y: 45.88, w: 18.624, h: 22.211, difficulty: "flat",
+  },
+  {
+    key: "rear-quarter-bottom", name: "rear quarter bottom", panel: "Rear Quarter Bottom",
+    blurb: "",
+    x: 30.66, y: 55.55, w: 10, h: 10, difficulty: "flat",
+  },
+  {
+    key: "rear-quarter", name: "Rear quarter", panel: "Rear quarter panel",
+    blurb: "The fastback's broadest shoulder, directly beneath the signature vents.",
+    x: 30.627, y: 40.945, w: 10.674, h: 10.81, difficulty: "curved",
+  },
+  {
+    key: "sill", name: "Rocker banner", panel: "Sill",
+    blurb: "A full-length banner running the wheelbase. Long, low, and unmissable in profile.",
+    x: 30.255, y: 69.892, w: 42.53, h: 9.118, difficulty: "mild",
+  },
+  {
+    key: "quarter-glass", name: "Quarter glass", panel: "Rear side window",
+    blurb: "Cut vinyl on glass. Cheapest to apply and the easiest to remove cleanly.",
+    x: 29.539, y: 17.848, w: 10.926, h: 12.067, difficulty: "glass",
   },
   {
     key: "tailgate", name: "Tailgate", panel: "Rear panel",
     blurb: "Above the DATSUN 100A script. What everyone behind you reads at the lights.",
-    x: 5.706, y: 40.164, w: 7.472, h: 6.126, difficulty: "curved",
+    x: 20.675, y: 41.387, w: 7.472, h: 6.126, difficulty: "curved",
   },
   {
     key: "rear-lower", name: "Rear lower quarter", panel: "Lower rear quarter",
     blurb: "Behind the rear wheel, above the bumper. Small, tucked away, and cheap.",
-    x: 7.307, y: 59.082, w: 6.404, h: 6.847, difficulty: "curved",
+    x: 20.64, y: 49.755, w: 6.404, h: 6.847, difficulty: "curved",
   },
   {
-    key: "roof", name: "Roof", panel: "Roof",
-    blurb:
-      "Edge-on in profile, but the whole panel from above — and the only spot that " +
-      "shows in a drone shot or a multi-storey car park.",
-    x: 44.131, y: 10.976, w: 13.876, h: 5.045, difficulty: "mild",
+    key: "rear-quarter-2", name: "Rear Quarter 2", panel: "Rear Quarter 2",
+    blurb: "",
+    x: 11.918, y: 36.935, w: 8.302, h: 21.314, difficulty: "mild",
+  },
+  {
+    key: "fuel-cap", name: "Fuel Cap", panel: "Fuel Cap",
+    blurb: "",
+    x: 7.516, y: 50.657, w: 4.025, h: 8.471, difficulty: "mild",
   },
 ];
+/* SPOTS:END */
 
 /* ------------------------------------------------------------------ *
  * Derived geometry and price
@@ -140,7 +148,13 @@ export interface SpotMetrics {
   floorPriceCents: number;
 }
 
-/** Photo percentages -> real centimetres -> honest floor price. */
+/**
+ * Photo percentages -> real centimetres -> what this spot costs to produce.
+ *
+ * `floorPriceCents` here is a COST ESTIMATE, not the price a spot opens at.
+ * Spots all open at AUCTION.openingPriceCents; this is what it would cost to
+ * cut and fit the vinyl, which the admin console shows for reference.
+ */
 export function metricsFor(spot: SpotDefinition): SpotMetrics {
   const widthCm = ((spot.w / 100) * CAR.photoWidth * MM_PER_PX) / 10;
   const heightCm = ((spot.h / 100) * CAR.photoHeight * MM_PER_PX) / 10;
@@ -156,7 +170,7 @@ export function metricsFor(spot: SpotDefinition): SpotMetrics {
     (p.installBaseEur + areaSqft * p.installEurPerSqft) * p.difficulty[spot.difficulty];
 
   const totalEur = p.setupEur + materialEur + installEur;
-  // Round to the nearest €5 — a floor price of "€117.43" reads as a machine
+  // Round to the nearest €5: a floor price of "€117.43" reads as a machine
   // guessing rather than a shop quoting.
   const floorPriceCents = Math.round(totalEur / 5) * 5 * 100;
 
@@ -167,10 +181,11 @@ export const AUCTION = {
   /** Set at seed time; the auction runs this long. */
   durationHours: 12 * 24,
   /**
-   * Total the seller needs to cover having the whole car wrapped and the
-   * platform's costs. Drives the progress bar; purely presentational.
+   * What every spot opens at, regardless of its size or which panel it is on.
+   * The bidding is what prices prominence; a big flat door and a small awkward
+   * roundel start level and it is up to bidders which one is worth more.
    */
-  goalCents: 250_000,
+  openingPriceCents: 500,
   /** A bid inside this window pushes the close out, per spot. */
   snipeWindowMs: 5 * 60 * 1000,
   extensionMs: 5 * 60 * 1000,

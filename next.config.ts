@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   /**
    * better-sqlite3 is a native addon. Next must not try to bundle it into the
-   * server build — leave it external so the .node binary resolves at runtime.
+   * server build: leave it external so the .node binary resolves at runtime.
    */
   serverExternalPackages: ["better-sqlite3"],
 

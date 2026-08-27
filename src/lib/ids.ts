@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 /**
  * Opaque identifiers: `<prefix>_<22 base62 chars>`.
  *
- * 22 base62 characters is ~131 bits — collision-proof for our purposes without
+ * 22 base62 characters is ~131 bits, collision-proof for our purposes without
  * the dashes and case-insensitivity traps of a UUID, and safe raw in a URL, a
  * cookie value, or a Stripe metadata field.
  */

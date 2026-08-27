@@ -20,7 +20,7 @@ const OPTIONS: ReadonlyArray<{ value: CarView; label: string }> = [
  *
  * Built as a real radiogroup rather than two buttons: the two views are
  * mutually exclusive states of one thing, so a screen reader should hear
- * "1 of 2 selected", and the arrow keys — not tab — should move between them.
+ * "1 of 2 selected", and the arrow keys, not tab, should move between them.
  * Roving tabindex keeps the whole control a single tab stop.
  */
 export default function ViewToggle({ value, onChange, className = "" }: ViewToggleProps) {

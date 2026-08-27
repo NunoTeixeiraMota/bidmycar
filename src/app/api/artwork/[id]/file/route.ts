@@ -11,7 +11,7 @@ import { readArtworkBytes } from "@/lib/uploads";
  *
  * Uploads live outside public/ precisely so this check exists: a file is
  * readable only once a human approved it, or by the bidder who sent it, or by
- * an admin reviewing the queue. Anyone else gets 404 rather than 403 — a
+ * an admin reviewing the queue. Anyone else gets 404 rather than 403: a
  * private file should not confirm that it exists.
  *
  * An approved SVG is still a stranger's markup. `validateUpload` refuses the
@@ -66,7 +66,7 @@ export async function GET(
   try {
     payload = readArtworkBytes(artwork);
   } catch (err) {
-    // The row survived its file — a wiped upload directory, or a path we refuse
+    // The row survived its file: a wiped upload directory, or a path we refuse
     // to resolve. Neither is something the caller can act on.
     console.error(`[artwork] ${artwork.id} (${artwork.storedPath}) could not be read:`, err);
     return missing();

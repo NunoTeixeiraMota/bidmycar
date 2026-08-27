@@ -10,6 +10,7 @@ import {
   updateBid,
   updateBidder,
 } from "@/lib/db";
+import { normaliseLink } from "@/lib/link";
 import { SESSION_COOKIE, cookieOptions, signBidderId, verifyBidderCookie } from "@/lib/session";
 import { createCheckoutSession, refundPayment } from "@/lib/stripe";
 import type { Bidder, StartBidResult } from "@/lib/types";
@@ -20,7 +21,7 @@ import type { Bidder, StartBidResult } from "@/lib/types";
  * The order matters: validate, resolve who is bidding, let the engine accept or
  * refuse the amount, and only then open a checkout. A rejected bid must never
  * reach Stripe, and a bid that reaches Stripe must already exist in our
- * database — the webhook has nothing to settle otherwise.
+ * database; the webhook has nothing to settle otherwise.
  *
  * Nothing here decides whether money arrived. The bid row created below is
  * inert until `settleBid` runs, from the webhook in production or from this
@@ -35,6 +36,12 @@ const BidRequest = z.object({
   // 254 is the longest address SMTP will carry; `z.email()` covers the shape.
   email: z.email().max(254),
   displayName: z.string().trim().min(1).max(60),
+  /**
+   * Optional website for the public roll. Anything unusable is dropped rather
+   * than rejected: a typo in an optional field must not cost someone their bid,
+   * and `normaliseLink` is what decides whether it becomes an href.
+   */
+  link: z.string().max(300).optional(),
 });
 
 /* ------------------------------------------------------------------ *
@@ -49,7 +56,7 @@ function json(body: StartBidResult, status = 200): NextResponse {
  * The same answer, carrying the bidder's session.
  *
  * Set on every bid rather than only on the first, so the thirty-day window
- * slides forward while someone is still actively bidding — losing the cookie
+ * slides forward while someone is still actively bidding: losing the cookie
  * mid-auction would strand them from the spots they are holding.
  */
 function jsonAs(bidder: Bidder, body: StartBidResult, status = 200): NextResponse {
@@ -99,19 +106,29 @@ function invalid(issues: z.ZodError["issues"]): NextResponse {
  * a form is a claim. Reading it the other way round would let anyone point an
  * existing session at somebody else's identity just by typing their address.
  */
-function resolveBidder(request: NextRequest, email: string, displayName: string): Bidder {
+function resolveBidder(
+  request: NextRequest,
+  email: string,
+  displayName: string,
+  link: string | null,
+): Bidder {
   const claimed = verifyBidderCookie(request.cookies.get(SESSION_COOKIE)?.value);
   const existing = (claimed ? getBidderById(claimed) : null) ?? getBidderByEmail(email);
 
   if (existing) {
     // The name beside the spot should be the one they just typed. The email is
-    // deliberately left alone — it is the unique key this row was found by.
-    if (existing.displayName === displayName) return existing;
-    return updateBidder(existing.id, { displayName }) ?? existing;
+    // deliberately left alone: it is the unique key this row was found by.
+    // An empty link leaves the stored one standing: a bidder who filled it in
+    // once should not lose it by leaving the field blank on their next bid.
+    const patch: Partial<Bidder> = {};
+    if (existing.displayName !== displayName) patch.displayName = displayName;
+    if (link !== null && existing.link !== link) patch.link = link;
+    if (Object.keys(patch).length === 0) return existing;
+    return updateBidder(existing.id, patch) ?? existing;
   }
 
   try {
-    return insertBidder({ email, displayName });
+    return insertBidder({ email, displayName, link });
   } catch {
     // Two first bids from the same address in flight at once: one insert wins,
     // the other hits the UNIQUE index. A returning bidder resumes their
@@ -146,8 +163,8 @@ async function refundBeaten(bidId: string): Promise<void> {
  * With no Stripe keys the bid settles here and now, without money.
  *
  * This is what makes a fresh clone playable: seed, run, bid, win. It follows
- * exactly the same path a webhook would — settle, then refund whoever the
- * settlement displaced — so demo mode exercises the real state machine rather
+ * exactly the same path a webhook would: settle, then refund whoever the
+ * settlement displaced. So demo mode exercises the real state machine rather
  * than a simplified one.
  */
 async function settleDemoBid(bidId: string, now: number): Promise<StartBidResult> {
@@ -206,8 +223,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const parsed = BidRequest.safeParse(body);
   if (!parsed.success) return invalid(parsed.error.issues);
   const { spotKey, amountCents, email, displayName } = parsed.data;
+  const link = normaliseLink(parsed.data.link);
 
-  const bidder = resolveBidder(request, email, displayName);
+  const bidder = resolveBidder(request, email, displayName, link);
 
   const now = Date.now();
   const outcome = startBid({ spotKey, bidderId: bidder.id, amountCents, now });

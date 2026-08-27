@@ -16,8 +16,8 @@ export interface SpotHotspotProps {
 /**
  * Below this height (percent of the photo) the spot box is thinner than a price
  * chip, so the chip sits above the outline instead of inside it. Above is the
- * only free side: everything underneath the short spots — the rocker banner,
- * the lower wing, the lower rear quarter — is itself a spot.
+ * only free side: everything underneath the short spots (the rocker banner,
+ * the lower wing, the lower rear quarter) is itself a spot.
  */
 const CHIP_FITS_INSIDE_H = 4.5;
 
@@ -56,7 +56,7 @@ export default function SpotHotspot({
   const spoken = `${round(spot.widthCm)} by ${round(spot.heightCm)} centimetres`;
   const label = closed
     ? holder
-      ? `${spot.name}, ${spoken}, closed — won by ${holder.displayName} at ${price}`
+      ? `${spot.name}, ${spoken}, closed, won by ${holder.displayName} at ${price}`
       : `${spot.name}, ${spoken}, closed with no bids`
     : holder
       ? `Bid on the ${spot.name.toLowerCase()}, ${spoken}, held by ${holder.displayName} at ${price}`
@@ -115,7 +115,7 @@ export default function SpotHotspot({
             fill
             sizes="20vw"
             // The optimiser refuses SVG unless dangerouslyAllowSVG is on, and an
-            // approved logo may well be one — so these bytes are served as
+            // approved logo may well be one, so these bytes are served as
             // uploaded. object-contain is what keeps any aspect ratio honest.
             unoptimized
             draggable={false}

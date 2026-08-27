@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AUCTION, SPOTS } from "@/config/car";
+import { AUCTION, SPOTS, metricsFor } from "@/config/car";
 import { incrementFor, minimumNextBid } from "@/lib/money";
 import type { Bid } from "@/lib/types";
 
@@ -12,7 +12,7 @@ import type { Bid } from "@/lib/types";
  * Every test runs against its own SQLite file.
  *
  * db.ts caches prepared statements per module instance and the handle itself on
- * globalThis, so swapping the file needs BOTH thrown away — a stale statement
+ * globalThis, so swapping the file needs BOTH thrown away: a stale statement
  * bound to a closed handle is the failure mode this dance avoids.
  */
 const HANDLE = Symbol.for("datsun-100a-auction.db");
@@ -49,7 +49,7 @@ afterEach(() => {
 
 const T0 = 1_760_000_000_000;
 const HOUR = 60 * 60 * 1000;
-const FLOOR = 10_000; // €100 — increment is the €10 floor, so minimum next is €110
+const FLOOR = 10_000; // €100, increment is the €10 floor, so minimum next is €110
 
 function seedSpot(key: string, floorPriceCents = FLOOR, closesAt = T0 + HOUR) {
   return store.insertSpot({
@@ -108,6 +108,14 @@ const SPOT_SHAPE = {
   floorPriceCents: FLOOR,
   widthCm: 40,
   heightCm: 20,
+  // No geometry override: this fixture uses the shipped survey, like a spot
+  // nobody has dragged in the admin console.
+  x: null,
+  y: null,
+  w: null,
+  h: null,
+  shape: null,
+  difficulty: null,
   status: "open" as const,
   closesAt: T0 + HOUR,
   extensionCount: 0,
@@ -298,7 +306,7 @@ describe("startBid", () => {
       expect(out.ok === false && out.reason).toBe("bidder_unknown");
     });
 
-    it("already_holding — you cannot bid against yourself", () => {
+    it("already_holding: you cannot bid against yourself", () => {
       seedSpot("door-main");
       const ana = seedBidder("Ana");
       placeAndSettle("door-main", ana.id, FLOOR);
@@ -623,19 +631,62 @@ describe("expireBid", () => {
  * ------------------------------------------------------------------ */
 
 describe("getAuctionState", () => {
+  // Keyed off whatever the config actually holds rather than a named spot: the
+  // survey is editable from the admin console and exported back over this file,
+  // so any particular key may not be there tomorrow.
   it("joins config geometry onto the persisted row", () => {
-    seedSpot("roundel");
-    const view = auction.getAuctionState(T0).spots.find((s) => s.key === "roundel");
-    expect(view?.shape).toBe("ellipse");
-    const geometry = SPOTS.find((s) => s.key === "roundel");
-    expect(view?.x).toBe(geometry?.x);
-    expect(view?.y).toBe(geometry?.y);
-    expect(view?.w).toBe(geometry?.w);
-    expect(view?.h).toBe(geometry?.h);
-    expect(view?.widthCm).toBe(40); // from the DB, not recomputed
+    const geometry = SPOTS[0];
+    seedSpot(geometry.key);
+    const view = auction.getAuctionState(T0).spots.find((s) => s.key === geometry.key);
+    expect(view?.x).toBe(geometry.x);
+    expect(view?.y).toBe(geometry.y);
+    expect(view?.w).toBe(geometry.w);
+    expect(view?.h).toBe(geometry.h);
+    expect(view?.shape).toBe(geometry.shape ?? "rect");
+    // Centimetres are measured off the box, not read back from the row: the
+    // row's 40 x 20 is a seed fixture, the survey is what the car really is.
+    expect(view?.widthCm).toBeCloseTo(metricsFor(geometry).widthCm, 6);
   });
 
-  it("totals only settled money and reports the goal", () => {
+  it("prefers a geometry override written by the admin console", () => {
+    const spot = seedSpot("door-main");
+    store.updateSpot(spot.id, { x: 10, y: 20, w: 30, h: 12, shape: "ellipse" });
+
+    const view = auction.getAuctionState(T0).spots.find((s) => s.key === "door-main");
+    expect(view?.x).toBe(10);
+    expect(view?.y).toBe(20);
+    expect(view?.w).toBe(30);
+    expect(view?.h).toBe(12);
+    expect(view?.shape).toBe("ellipse");
+
+    const definition = SPOTS.find((s) => s.key === "door-main") ?? SPOTS[0];
+    const expected = metricsFor({ ...definition, x: 10, y: 20, w: 30, h: 12, shape: "ellipse" });
+    expect(view?.widthCm).toBeCloseTo(expected.widthCm, 6);
+    expect(view?.heightCm).toBeCloseTo(expected.heightCm, 6);
+  });
+
+  it("falls back to the survey when an override is only half written", () => {
+    const spot = seedSpot("door-main");
+    // A row that somehow carries x and y but no size must not draw a spot at
+    // width zero; the shipped measurement is the floor under every edit.
+    store.updateSpot(spot.id, { x: 10, y: 20 });
+
+    const view = auction.getAuctionState(T0).spots.find((s) => s.key === "door-main");
+    const definition = SPOTS.find((s) => s.key === "door-main");
+    expect(view?.x).toBe(definition?.x);
+    expect(view?.w).toBe(definition?.w);
+  });
+
+  it("does not move a spot's floor price when its box is resized", () => {
+    const spot = seedSpot("door-main");
+    store.updateSpot(spot.id, { x: 1, y: 1, w: 2, h: 2 });
+
+    const view = auction.getAuctionState(T0).spots.find((s) => s.key === "door-main");
+    expect(view?.floorPriceCents).toBe(FLOOR);
+    expect(view?.currentPriceCents).toBe(FLOOR);
+  });
+
+  it("totals only settled money", () => {
     seedSpot("door-main");
     seedSpot("roof");
     const ana = seedBidder("Ana");
@@ -645,8 +696,6 @@ describe("getAuctionState", () => {
 
     const state = auction.getAuctionState(T0);
     expect(state.totalRaisedCents).toBe(100_000);
-    expect(state.goalCents).toBe(AUCTION.goalCents);
-    expect(state.goalPercent).toBe(40);
     expect(state.spotsTaken).toBe(1);
     expect(state.spotsTotal).toBe(2);
     expect(state.serverNow).toBe(T0);

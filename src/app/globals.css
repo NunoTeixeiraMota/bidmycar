@@ -2,7 +2,7 @@
 
 /*
   Design system: "Showroom"
-  Apple product-page language — near-white canvas, near-black ink, one blue
+  Apple product-page language: near-white canvas, near-black ink, one blue
   signal accent, huge light display type, full-bleed product photography.
   Every colour the app uses is declared here. Re-skinning = editing this block.
 */
@@ -31,7 +31,7 @@
   --font-display: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: var(--font-mono-face), ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* Motion — Apple's ease, slow and decelerating */
+  /* Motion: Apple's ease, slow and decelerating */
   --ease-showroom: cubic-bezier(0.28, 0.11, 0.32, 1);
 }
 
@@ -138,7 +138,7 @@
   .btn-md { padding: 0.7rem 1.4rem; font-size: 0.9375rem; }
   .btn-sm { padding: 0.45rem 1rem; font-size: 0.8125rem; }
 
-  /* Section rhythm — Apple breathes. */
+  /* Section rhythm: Apple breathes. */
   .section { padding-block: clamp(5rem, 11vw, 9.5rem); }
   .shell { width: 100%; max-width: 1120px; margin-inline: auto; padding-inline: 1.5rem; }
   .shell-wide { width: 100%; max-width: 1440px; margin-inline: auto; padding-inline: 1.5rem; }

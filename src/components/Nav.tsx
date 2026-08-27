@@ -4,17 +4,16 @@ import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 
 /**
- * Section anchors the page is expected to expose. Scrolling itself is native —
+ * Section anchors the page is expected to expose. Scrolling itself is native:
  * `scroll-behavior` and `scroll-padding-top` are set in globals.css / layout,
  * which also means `prefers-reduced-motion` is honoured without any JS.
  */
 // Nav fragments are root-relative on purpose: a bare "#spots" resolves
 // only on the home page and silently does nothing from /terms or /admin.
 const LINKS = [
-  { href: "/#the-car", label: "The car" },
-  { href: "/#spots", label: "Spots" },
-  { href: "/#how-it-works", label: "How it works" },
-  { href: "/#faq", label: "FAQ" },
+  { href: "/#spots", label: "The car" },
+  { href: "/#leaderboard", label: "Leaderboard" },
+  { href: "/terms", label: "Terms" },
 ] as const;
 
 export default function Nav() {

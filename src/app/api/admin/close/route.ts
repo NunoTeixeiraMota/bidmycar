@@ -12,7 +12,7 @@ import { isStripeConfigured, refundPayment } from "@/lib/stripe";
  * single transaction and hands back the bids owed money; the refunds then go
  * out one at a time over the network. A Stripe failure on one card must not
  * roll back a close that already happened, or abandon the nine refunds behind
- * it — so each is attempted independently and reported by bid.
+ * it, so each is attempted independently and reported by bid.
  *
  * Re-running this is the retry. The second call closes nothing (every spot is
  * already shut) but still lists every outbid bid whose refund has not landed,
@@ -26,7 +26,7 @@ type Gate = { ok: true } | { ok: false; response: Response };
 
 /**
  * The admin gate, repeated in each admin route because a route file may export
- * only route handlers — there is nowhere shared to put it that Next will accept.
+ * only route handlers; there is nowhere shared to put it that Next will accept.
  *
  * An unset ADMIN_TOKEN closes the console rather than opening it. This route
  * ends the auction and moves real money; it never runs on a default.

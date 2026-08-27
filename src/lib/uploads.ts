@@ -13,7 +13,7 @@ import type { Artwork } from "@/lib/types";
  * composited onto the public hero image, so this module is a security boundary
  * rather than a convenience wrapper. Three rules follow from that:
  *
- *  1. Nothing the client says about its own file is believed — not the mime
+ *  1. Nothing the client says about its own file is believed: not the mime
  *     type, not the extension, not the byte count. Only the magic bytes decide.
  *  2. The stored filename is generated here, never derived from the uploaded
  *     one, which is attacker-controlled and may contain `/` or `..`.
@@ -118,8 +118,8 @@ export function sniffImageType(bytes: Uint8Array): SniffedType | null {
  * So: reject rather than strip. A rewriting sanitiser has to be right about
  * every obfuscation an attacker can spell; a rejection only has to be right
  * about "this file contains something no logo needs". Legitimate vector logos
- * contain paths, fills and text — never scripts, handlers or external
- * references — so the false-positive cost is a designer re-exporting a file.
+ * contain paths, fills and text, never scripts, handlers or external
+ * references, so the false-positive cost is a designer re-exporting a file.
  *
  * This check is necessary but not sufficient. The read path must also serve
  * these bytes with the sniffed Content-Type and `Content-Disposition:
@@ -131,7 +131,7 @@ const SVG_HAZARDS: ReadonlyArray<{ pattern: RegExp; what: string }> = [
   { pattern: /<script[\s>/]/, what: "a <script> element" },
   // Any on* attribute: onload, onerror, onmouseover, onbegin, onclick...
   { pattern: /[\s"';/]on[a-z]+\s*=/, what: "an inline event handler attribute" },
-  // foreignObject smuggles arbitrary HTML — including <script> — into the SVG.
+  // foreignObject smuggles arbitrary HTML, including <script>, into the SVG.
   { pattern: /<foreignobject[\s>/]/, what: "a <foreignObject> element" },
   { pattern: /<(?:iframe|embed|object|audio|video)[\s>/]/, what: "an embedded document element" },
   // href="javascript:..." and data: URLs, on href or the legacy xlink:href.
@@ -144,8 +144,8 @@ const SVG_HAZARDS: ReadonlyArray<{ pattern: RegExp; what: string }> = [
   { pattern: /<(?:animate|set)[\s>/][^>]*attributename\s*=\s*["']?\s*(?:xlink:)?href/, what: "a SMIL animation targeting href" },
   // Entity declarations are the entry point for expansion (billion laughs) and
   // external-entity (XXE) attacks on whatever parses the file next. A bare
-  // <!DOCTYPE svg PUBLIC ...> is left alone — Illustrator and Inkscape both
-  // emit one — but an internal subset carries the same payload as <!ENTITY>.
+  // <!DOCTYPE svg PUBLIC ...> is left alone, since Illustrator and Inkscape both
+  // emit one, but an internal subset carries the same payload as <!ENTITY>.
   { pattern: /<!entity[\s>]/, what: "an entity declaration" },
   { pattern: /<!doctype[^>[]*\[/, what: "a DOCTYPE with an internal subset" },
 ];
@@ -189,7 +189,7 @@ export type UploadRejectionReason =
 export interface UploadAccepted {
   ok: true;
   sniffed: SniffedType;
-  /** The canonical type for the sniffed bytes — this, not the declared one. */
+  /** The canonical type for the sniffed bytes: this, not the declared one. */
   mimeType: string;
   extension: string;
   byteSize: number;
@@ -244,7 +244,7 @@ export function validateUpload(candidate: UploadCandidate): UploadValidation {
   if (sniffed === null) {
     return reject(
       "unrecognised_format",
-      "That file is not a PNG, JPEG, WebP or SVG — its contents do not match any of them.",
+      "That file is not a PNG, JPEG, WebP or SVG: its contents do not match any of them.",
     );
   }
 
@@ -289,7 +289,7 @@ export class UploadValidationError extends Error {
  * ------------------------------------------------------------------ */
 
 /**
- * The uploader's filename is kept for display only — shown to the admin next to
+ * The uploader's filename is kept for display only, shown to the admin next to
  * the image so "logo-final-v3.svg" still means something. It never reaches the
  * filesystem, so this only has to be safe to print: no path parts, no control
  * characters, bounded length.
@@ -388,7 +388,7 @@ export function storeArtwork(input: StoreArtworkInput): Artwork {
  * Reading back
  * ------------------------------------------------------------------ */
 
-/** The stored path escaped the upload root — refuse rather than follow it. */
+/** The stored path escaped the upload root: refuse rather than follow it. */
 export class ArtworkPathError extends Error {
   constructor(storedPath: string) {
     super(`Artwork path "${storedPath}" resolves outside the upload root.`);
@@ -435,7 +435,7 @@ export interface ArtworkBytes {
  * SVG is served as an attachment. Browsers ignore Content-Disposition for
  * subresources, so `<img src>` still renders the logo, but a visitor who
  * navigates straight to the file gets a download instead of a document
- * executing in our origin — which is the one path where a hazard that slipped
+ * executing in our origin, which is the one path where a hazard that slipped
  * past validateUpload would actually become script. Raster formats are inert
  * and are served inline so they can be opened in a tab for review.
  */

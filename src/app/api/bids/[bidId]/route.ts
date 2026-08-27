@@ -10,7 +10,7 @@ import type { Artwork, Bid, SpotStatus } from "@/lib/types";
 /**
  * One bid, for the page Stripe returns the buyer to.
  *
- * Two rules shape the response. Only the bidder who placed it — or an admin —
+ * Two rules shape the response. Only the bidder who placed it, or an admin,
  * may read it, and a request that fails that check gets the same 404 as a bid
  * that does not exist, so the id space cannot be walked. And nothing Stripe
  * gave us goes out: a session or payment-intent id is a handle on somebody's
@@ -78,7 +78,7 @@ function publicArtwork(artwork: Artwork): PublicArtwork {
   };
 }
 
-/** One body for "no such bid" and for "not yours" — they must be identical. */
+/** One body for "no such bid" and for "not yours": they must be identical. */
 function notFound(): NextResponse {
   return NextResponse.json(
     { error: "No bid with that id." },

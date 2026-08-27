@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 
-import { AUCTION } from "@/config/car";
 import { minimumBidFor, priceOf, topBidOf } from "@/lib/auction";
 import {
   countSettledBidsForSpot,
@@ -23,7 +22,7 @@ import type { Bidder } from "@/lib/types";
  *
  * Deliberately not here: Stripe customer ids and Checkout session ids. Neither
  * helps anyone reconcile a payment, and this response is read by a browser
- * holding a shared bearer token — the less of Stripe's namespace it carries,
+ * holding a shared bearer token: the less of Stripe's namespace it carries,
  * the less a leaked console tab is worth. The payment intent and refund ids
  * stay, because looking a charge up in the dashboard is the whole job.
  */
@@ -38,7 +37,7 @@ type Gate = { ok: true } | { ok: false; response: Response };
 
 /**
  * The admin gate, repeated in each admin route because a route file may export
- * only route handlers — there is nowhere shared to put it that Next will accept.
+ * only route handlers; there is nowhere shared to put it that Next will accept.
  *
  * An unset ADMIN_TOKEN closes the console rather than opening it. Defaulting to
  * "no token configured means no check" is how an admin API ends up world-
@@ -153,7 +152,7 @@ export async function GET(req: Request): Promise<Response> {
     })
     .sort((a, b) => b.createdAt - a.createdAt);
 
-  // The review queue first, then what has already been decided — the console
+  // The review queue first, then what has already been decided. The console
   // shows both, and a rejected file's reason is part of the audit trail.
   const artwork = listArtwork().map((item) => {
     const spot = spotById.get(item.spotId);
@@ -205,8 +204,6 @@ export async function GET(req: Request): Promise<Response> {
       artwork,
 
       totalRaisedCents,
-      goalCents: AUCTION.goalCents,
-      goalPercent: Math.round((totalRaisedCents / AUCTION.goalCents) * 100),
       spotsTaken: spotViews.filter((spot) => spot.holder !== null).length,
       spotsTotal: spotViews.length,
       spotsClosed: spotViews.filter((spot) => spot.status === "closed").length,

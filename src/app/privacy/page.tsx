@@ -32,7 +32,7 @@ const CLAUSES: Clause[] = [
           </li>
           <li>
             <strong className="font-medium text-ink">Your display name.</strong> This one <em>is</em>{" "}
-            public — it appears beside any spot you hold. Choose it accordingly; a company name is
+            public: it appears beside any spot you hold. Choose it accordingly; a company name is
             the intent.
           </li>
           <li>
@@ -65,7 +65,7 @@ const CLAUSES: Clause[] = [
     body: (
       <p>
         Payment is handled entirely by Stripe. Your card number never reaches this server and is
-        never written to this database — the site stores only Stripe&rsquo;s identifiers for the
+        never written to this database. The site stores only Stripe&rsquo;s identifiers for the
         customer, the payment and any refund, which are meaningless without access to the Stripe
         account. Stripe&rsquo;s own privacy notice governs what they hold.
       </p>
@@ -78,7 +78,12 @@ const CLAUSES: Clause[] = [
       <>
         <p>
           Stripe, for payments and refunds. The vinyl shop that cuts the winning artwork, which
-          receives the logo files and nothing else — no email addresses and no bid amounts.
+          receives the logo files and nothing else: no email addresses and no bid amounts.
+        </p>
+        <p>
+          DataFast, which counts page visits for us. It is sent the page you are on and the usual
+          things a web server sees, and it is never sent your email address, your name or what you
+          bid. It is measurement, not advertising, and nothing it holds identifies you to us.
         </p>
         <p>
           Nobody else. Your details are not sold, rented, shared for advertising, or passed to any
@@ -95,7 +100,7 @@ const CLAUSES: Clause[] = [
         <p>
           Bids and payment records are kept for as long as tax and accounting rules require them,
           which in Portugal is ten years. That obligation overrides a deletion request for those
-          specific records — an invoice cannot be unwritten.
+          specific records: an invoice cannot be unwritten.
         </p>
         <p>
           Rejected artwork is deleted once the decision is final. Approved artwork is kept for as
@@ -141,7 +146,7 @@ const CLAUSES: Clause[] = [
         </p>
         <p>
           This is a small site run by one person, not a bank. It is built carefully, but you should
-          not put anything into it that you would be harmed by losing — and there is no reason to,
+          not put anything into it that you would be harmed by losing, and there is no reason to,
           since it asks for nothing beyond an email address and a logo.
         </p>
       </>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type Ref } from "react";
+import SpotGeometryEditor from "@/components/SpotGeometryEditor";
 import { formatMoney } from "@/lib/money";
 import type { Bid, CloseResult, ReviewStatus, SpotStatus } from "@/lib/types";
 
@@ -87,7 +88,7 @@ function failureFor(status: number, body: unknown): Failure {
 }
 
 function stamp(epochMs: number | null | undefined): string {
-  if (!epochMs) return "—";
+  if (!epochMs) return "-";
   return new Intl.DateTimeFormat("en-IE", {
     dateStyle: "short",
     timeStyle: "medium",
@@ -172,6 +173,8 @@ export default function AdminPage() {
             await load();
           }}
         />
+
+        <SpotGeometryEditor call={call} />
 
         <SpotsTable spots={summary.spots ?? []} />
 
@@ -310,7 +313,7 @@ function Header({
             {summary.spotsTaken ?? 0}/{summary.spotsTotal ?? (summary.spots?.length ?? 0)} spots held
           </span>
           <span className="tabular">{pending} artwork awaiting review</span>
-          {summary.demo ? <span className="text-live">demo mode — no real charges</span> : null}
+          {summary.demo ? <span className="text-live">demo mode, no real charges</span> : null}
         </p>
       </div>
       <div className="flex gap-2">
@@ -504,7 +507,7 @@ function ArtworkRow({
         <div className="mt-3 flex flex-wrap items-end gap-2">
           <div className="min-w-[220px] flex-1">
             <label htmlFor={reasonId} className="block text-[11px] text-faint">
-              Reason (required to reject — the bidder reads this)
+              Reason (required to reject; the bidder reads this)
             </label>
             <input
               id={reasonId}
@@ -592,7 +595,7 @@ function SpotsTable({ spots }: { spots: AdminSpot[] }) {
                         ) : null}
                       </>
                     ) : (
-                      "—"
+                      "-"
                     )}
                   </td>
                   <td className={`${CELL} tabular text-muted`}>{stamp(spot.closesAt)}</td>
@@ -666,7 +669,7 @@ function BidsTable({ bids, spots }: { bids: AdminBid[]; spots: AdminSpot[] }) {
                     <td className={`${CELL} ${tone}`}>{bid.status}</td>
                     <td className={`${CELL} tabular text-muted`}>{stamp(bid.refundedAt)}</td>
                     <td className={`${CELL} font-mono text-[11px] text-faint`}>
-                      {bid.stripePaymentIntentId ?? bid.stripeCheckoutSessionId ?? "—"}
+                      {bid.stripePaymentIntentId ?? bid.stripeCheckoutSessionId ?? "-"}
                       {bid.stripeRefundId ? (
                         <span className="block">{bid.stripeRefundId}</span>
                       ) : null}

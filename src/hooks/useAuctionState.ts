@@ -17,7 +17,7 @@ export interface UseAuctionStateResult {
   connected: boolean;
   /** Human-readable, safe to show. Null when everything is healthy. */
   error: string | null;
-  /** Force one immediate read of /api/auction/state — after placing a bid. */
+  /** Force one immediate read of /api/auction/state, after placing a bid. */
   refresh: () => Promise<void>;
 }
 
@@ -104,7 +104,7 @@ export function useAuctionState(initial: AuctionState): UseAuctionStateResult {
 
       stream.onerror = () => {
         // EventSource reconnects on its own, but with an interval we cannot cap
-        // and no way to fall back — so take the connection over entirely.
+        // and no way to fall back, so take the connection over entirely.
         stream.close();
         if (source === stream) source = null;
         if (torndown) return;

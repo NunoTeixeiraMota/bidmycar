@@ -7,7 +7,7 @@ interface CountdownProps {
   closesAt: number;
   /** The server's clock at render time, from AuctionState. */
   serverNow: number;
-  /** One line — "12d 18h 23m" — instead of the labelled d/h/m/s block. */
+  /** One line, "12d 18h 23m", instead of the labelled d/h/m/s block. */
   compact?: boolean;
   className?: string;
 }
@@ -31,7 +31,7 @@ export default function Countdown({
   // A browser clock can be minutes out, so the countdown runs on the server's
   // timeline: sample the offset once, at mount, and tick against that. Later
   // `serverNow` values (this re-renders every couple of seconds off the state
-  // stream) deliberately do not resample — that would restart the ticker.
+  // stream) deliberately do not resample: that would restart the ticker.
   const serverNowAtMount = useRef(serverNow);
 
   useEffect(() => {

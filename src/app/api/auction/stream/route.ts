@@ -37,8 +37,8 @@ export function GET(request: NextRequest): Response {
   /**
    * Every exit path leads here.
    *
-   * An interval left running after a client disconnects keeps a closure — and
-   * through it a database read every two seconds — alive for a reader that no
+   * An interval left running after a client disconnects keeps a closure, and
+   * through it a database read every two seconds, alive for a reader that no
    * longer exists. A handful of reloads is enough to bury the dev server, so
    * this is called from cancel(), from abort, and from any failed write.
    */
@@ -93,7 +93,7 @@ export function GET(request: NextRequest): Response {
       heartbeatTimer = setInterval(() => push(HEARTBEAT), HEARTBEAT_INTERVAL_MS);
 
       // cancel() covers a reader that lets go politely. A request aborted under
-      // us — a closed tab, a dropped mobile radio — may not reach it.
+      // us (a closed tab, a dropped mobile radio) may not reach it.
       request.signal.addEventListener("abort", stop, { once: true });
     },
 

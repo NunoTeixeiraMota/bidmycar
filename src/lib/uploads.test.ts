@@ -11,7 +11,7 @@ import type { Artwork } from "@/lib/types";
  * Each case gets its own SQLite file and its own upload directory.
  *
  * db.ts caches prepared statements per module instance and the handle itself on
- * globalThis, so a new file needs both thrown away — the same dance auction.test
+ * globalThis, so a new file needs both thrown away: the same dance auction.test
  * does. UPLOAD_DIR is re-read on every call, so swapping the env var is enough
  * there, but a fresh directory per test is what makes "the only file in the
  * upload root is the one we just wrote" a usable assertion.

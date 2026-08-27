@@ -21,7 +21,7 @@ import type { Artwork, Bid, SpotStatus } from "@/lib/types";
 /**
  * Where Stripe sends the buyer back to.
  *
- * Settlement happens in the webhook, not here — a buyer who closes this tab
+ * Settlement happens in the webhook, not here: a buyer who closes this tab
  * must still get their spot. So this page never writes anything about payment;
  * it reads the bid and waits for the webhook to have landed.
  */
@@ -45,7 +45,7 @@ interface BidPayload {
   artwork: Artwork | null;
 }
 
-type Phase = "awaiting_payment" | "failed" | "refunded" | "upload" | "review" | "approved";
+type Phase = "awaiting_payment" | "failed" | "outbid" | "upload" | "review" | "approved";
 
 /** Resolution a large-format printer needs to hold a clean edge. */
 const TARGET_DPI = 150;
@@ -59,7 +59,7 @@ function phaseOf(payload: BidPayload): Phase {
   const { bid, artwork } = payload;
   if (bid.status === "pending_payment") return "awaiting_payment";
   if (bid.status === "failed" || bid.status === "expired") return "failed";
-  if (bid.status === "outbid" || bid.status === "refunded") return "refunded";
+  if (bid.status === "outbid" || bid.status === "refunded") return "outbid";
   if (!artwork || artwork.reviewStatus === "awaiting_upload") return "upload";
   if (artwork.reviewStatus === "pending") return "review";
   if (artwork.reviewStatus === "rejected") return "upload";
@@ -242,8 +242,8 @@ function BidView({
   const pill =
     phase === "approved"
       ? { tone: "good" as const, label: "On the car" }
-      : phase === "refunded"
-        ? { tone: "muted" as const, label: "Outbid — refunded" }
+      : phase === "outbid"
+        ? { tone: "muted" as const, label: "Outbid" }
         : phase === "failed"
           ? { tone: "live" as const, label: "Payment didn't complete" }
           : phase === "review"
@@ -279,8 +279,8 @@ function BidView({
               <AwaitingPayment onRefresh={onRefresh} />
             ) : phase === "failed" ? (
               <PaymentFailed spotKey={spot.key} />
-            ) : phase === "refunded" ? (
-              <Refunded bid={bid} spot={spot} />
+            ) : phase === "outbid" ? (
+              <Outbid bid={bid} spot={spot} />
             ) : phase === "review" ? (
               <UnderReview />
             ) : phase === "approved" && artwork ? (
@@ -301,8 +301,7 @@ function BidView({
           <div className="hairline-t mt-16 max-w-[680px] pt-8 text-[13px] leading-[1.6] text-faint">
             <p>
               Your card was charged {formatMoney(bid.amountCents)} when you bid. If somebody pays
-              more for {spot.name}, you lose the spot and this exact amount is refunded to the same
-              card automatically &mdash; you do not have to ask.{" "}
+              more for {spot.name}, you lose the spot and that charge is not refunded.{" "}
               <Link href="/terms" className={`text-signal hover:underline ${FOCUS_RING}`}>
                 The conditions
               </Link>{" "}
@@ -326,7 +325,7 @@ function AwaitingPayment({ onRefresh }: { onRefresh: () => Promise<void> }) {
         checks every few seconds and will move on by itself.
       </p>
       <p className="mt-5 text-[15px] leading-[1.6] text-muted">
-        You do not need to pay again, and you do not need to keep this tab open &mdash; your spot is
+        You do not need to pay again, and you do not need to keep this tab open. Your spot is
         decided by the payment, not by this page. If it is still saying this in a minute or two,
         something has gone wrong and we would like to hear about it.
       </p>
@@ -369,25 +368,22 @@ function PaymentFailed({ spotKey }: { spotKey: string }) {
   );
 }
 
-function Refunded({ bid, spot }: { bid: Bid; spot: BidPageSpot }) {
-  const settled = bid.status === "refunded";
+function Outbid({ bid, spot }: { bid: Bid; spot: BidPageSpot }) {
   return (
     <div>
       <h2 className="display-md text-ink">Somebody outbid you on {spot.name}.</h2>
       <p className="lede mt-5">
-        You no longer hold the spot, and {formatMoney(bid.amountCents)} &mdash; all of it &mdash; is
-        going back to the card you paid with. Nothing was deducted.
+        You no longer hold the spot. The {formatMoney(bid.amountCents)} you paid is not refunded,
+        which is the deal you agreed to when you bid.
       </p>
       <dl className="mt-8 grid gap-px overflow-hidden rounded-2xl bg-hairline sm:grid-cols-2">
         <div className="bg-canvas p-6">
-          <dt className="text-[12px] uppercase tracking-[0.06em] text-faint">Refund</dt>
+          <dt className="text-[12px] uppercase tracking-[0.06em] text-faint">You paid</dt>
           <dd className="tabular mt-2 text-[19px] font-semibold text-ink">
             {formatMoney(bid.amountCents)}
           </dd>
           <dd className="mt-1 text-[13px] text-muted">
-            {settled && bid.refundedAt
-              ? `Issued ${formatWhen(bid.refundedAt)}`
-              : "Being issued now"}
+            {bid.paidAt ? `Charged ${formatWhen(bid.paidAt)}` : "Not refundable"}
           </dd>
         </div>
         <div className="bg-canvas p-6">
@@ -403,9 +399,7 @@ function Refunded({ bid, spot }: { bid: Bid; spot: BidPageSpot }) {
         </div>
       </dl>
       <p className="mt-6 text-[15px] leading-[1.6] text-muted">
-        Refunds leave us immediately. How long they take to appear on your statement is your
-        bank&rsquo;s decision &mdash; five to ten working days is normal, and neither of us can
-        hurry it.
+        Bidding again on this spot is a fresh payment. It does not top up the one you already made.
       </p>
       {spot.status !== "closed" ? (
         <div className="mt-8">
@@ -428,7 +422,7 @@ function UnderReview() {
       </p>
       <p className="mt-5 text-[15px] leading-[1.6] text-muted">
         If it is rejected you will get the reason and a chance to send something else. Nothing about
-        review affects your hold on the spot &mdash; that is decided by the bidding.
+        review affects your hold on the spot; that is decided by the bidding.
       </p>
       <div className="mt-8">
         <Link href="/#spots" className={`btn btn-secondary btn-md ${FOCUS_RING}`}>
@@ -456,7 +450,7 @@ function Approved({ artwork, spotKey }: { artwork: Artwork; spotKey: string }) {
         <div className="relative h-full w-full">
           <Image
             src={CAR.photo}
-            alt={`${CAR.name} in profile — ${CAR.subtitle}`}
+            alt={`${CAR.name} in profile, ${CAR.subtitle}`}
             fill
             sizes="(max-width: 768px) 100vw, 680px"
             className="object-contain"
@@ -655,7 +649,7 @@ function UploadPanel({
       </dl>
 
       <p className="mt-4 text-[14px] leading-[1.6] text-muted">
-        SVG is best &mdash; it is what the cutter wants and it scales to the panel without
+        SVG is best: it is what the cutter wants and it scales to the panel without
         softening. Transparent background, and keep important detail a few millimetres inside the
         edge.
       </p>
@@ -706,7 +700,7 @@ function UploadPanel({
               backgroundPosition: "0 0, 8px 8px",
             }}
           >
-            {/* A blob: URL from the file the visitor just picked — nothing for
+            {/* A blob: URL from the file the visitor just picked, nothing for
                 next/image to optimise, and it must not be routed through the
                 image loader. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -8,7 +8,7 @@ import { SESSION_COOKIE, clearedCookieOptions, verifyBidderCookie } from "@/lib/
  *
  * Convenience only: it prefills the bid form and puts a "you hold this" badge
  * on a card. Nothing here is authorisation, so an unrecognised visitor is a
- * 200 with nulls rather than a 401 — the board must render for strangers.
+ * 200 with nulls rather than a 401: the board must render for strangers.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +30,7 @@ export function GET(request: NextRequest): Response {
       // stripeCustomerId stays server-side: it is a handle on a payment method,
       // and nothing in the browser has any use for it.
       bidder: bidder
-        ? { id: bidder.id, displayName: bidder.displayName, email: bidder.email }
+        ? { id: bidder.id, displayName: bidder.displayName, email: bidder.email, link: bidder.link }
         : null,
       heldSpots,
     },

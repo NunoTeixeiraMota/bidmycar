@@ -1,6 +1,6 @@
 /**
- * Fills a freshly seeded auction with plausible activity — a few bidders, bids
- * on seven of the eleven spots, and approved logos — so you can see the board
+ * Fills a freshly seeded auction with plausible activity: a few bidders, bids
+ * on seven of the eleven spots, and approved logos, so you can see the board
  * alive without placing eleven bids by hand.
  *
  * Requires the app to be running (`npm run dev`) because it drives the real
@@ -10,7 +10,7 @@
  *   npm run dev            # in one terminal
  *   npm run seed:demo      # in another
  *
- * Only works in demo mode (no Stripe keys) — with keys configured a bid needs a
+ * Only works in demo mode (no Stripe keys). With keys configured a bid needs a
  * real Checkout session, and this script deliberately refuses rather than
  * pretending to have paid.
  */
@@ -87,7 +87,7 @@ for (const brand of BRANDS) {
   );
 
   if (!bid.body?.ok) {
-    console.log(`  ${brand.spot.padEnd(14)} skipped — ${bid.body?.message ?? bid.status}`);
+    console.log(`  ${brand.spot.padEnd(14)} skipped: ${bid.body?.message ?? bid.status}`);
     continue;
   }
   if (!bid.body.demo) {
@@ -107,7 +107,7 @@ for (const brand of BRANDS) {
   );
   const upload = await call("/api/artwork", { method: "POST", body: form }, email);
   if (!upload.body?.ok) {
-    console.log(`  ${brand.spot.padEnd(14)} bid ok, upload failed — ${upload.body?.message ?? upload.status}`);
+    console.log(`  ${brand.spot.padEnd(14)} bid ok, upload failed: ${upload.body?.message ?? upload.status}`);
     continue;
   }
 
@@ -132,12 +132,11 @@ const final = await (await fetch(BASE + "/api/auction/state")).json();
 const pending = final.spots.filter((s) => s.holder?.artworkPending).length;
 
 console.log(
-  `\n${placed} spots taken \u00b7 \u20ac${final.totalRaisedCents / 100} raised of ` +
-    `\u20ac${final.goalCents / 100} (${final.goalPercent}%)`,
+  `\n${placed} spots taken \u00b7 \u20ac${final.totalRaisedCents / 100} raised`,
 );
 if (pending > 0) {
   console.log(
-    `${pending} logo(s) still awaiting review \u2014 ADMIN_TOKEN did not match the server's.\n` +
+    `${pending} logo(s) still awaiting review: ADMIN_TOKEN did not match the server's.\n` +
       "Approve them at /admin, or re-run with the same ADMIN_TOKEN the server was started with.",
   );
 }

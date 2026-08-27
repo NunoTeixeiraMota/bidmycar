@@ -1,11 +1,16 @@
 /**
  * Opens the lot: creates data/auction.db, writes the schema, and inserts the
- * eleven spots with a fresh clock.
+ * spots with a fresh clock.
  *
  *   node scripts/seed.mjs            create/refresh the spots
  *   node scripts/seed.mjs --reset    also wipe every bid, bidder and artwork
  *
- * The spot table and the pricing formula are NOT restated here — they are
+ * src/config/car.ts is the deployable record of the board. Spots added or moved
+ * in /admin live only in that machine's database until `npm run spots:export`
+ * writes them back into the config, which is what makes a deploy reproduce the
+ * car you actually arranged.
+ *
+ * The spot table and the pricing formula are NOT restated here: they are
  * imported straight out of src/config/car.ts, so a re-measured spot or a
  * changed vinyl rate can never drift between the app and the seed. Node runs
  * the TypeScript by stripping its types (built in since 22.18, behind a flag
@@ -55,7 +60,7 @@ async function loadConfig() {
 
     console.error(
       "\nseed: could not load src/config/car.ts.\n" +
-        "Node must be able to run TypeScript directly — use Node 22.6 or newer.\n" +
+        "Node must be able to run TypeScript directly: use Node 22.6 or newer.\n" +
         `This is Node ${process.version}.\n`,
     );
     process.exit(1);
@@ -65,8 +70,12 @@ async function loadConfig() {
 const { SPOTS, AUCTION, CAR, metricsFor, newId } = await loadConfig();
 
 /* ------------------------------------------------------------------ *
- * Schema — kept byte-identical in intent to src/lib/db.ts, which owns it at
+ * Schema: kept byte-identical in intent to src/lib/db.ts, which owns it at
  * runtime. Seeding must not depend on a server having booted first.
+ *
+ * src/lib/db.ts also carries an additive migration for columns added after the
+ * first release, so a database seeded by an older copy of this file still ends
+ * up correct. Keeping the two in step means that never has to run.
  * ------------------------------------------------------------------ */
 
 const SCHEMA = `
@@ -79,6 +88,13 @@ CREATE TABLE IF NOT EXISTS spots (
   floor_price_cents INTEGER NOT NULL,
   width_cm          REAL NOT NULL,
   height_cm         REAL NOT NULL,
+  -- Geometry override from the admin console, as a percentage of the car
+  -- photo. NULL means "use the shipped survey in src/config/car.ts".
+  x                 REAL,
+  y                 REAL,
+  w                 REAL,
+  h                 REAL,
+  shape             TEXT,
   status            TEXT NOT NULL,
   closes_at         INTEGER NOT NULL,
   extension_count   INTEGER NOT NULL DEFAULT 0,
@@ -89,6 +105,8 @@ CREATE TABLE IF NOT EXISTS bidders (
   id                 TEXT PRIMARY KEY,
   email              TEXT NOT NULL UNIQUE,
   display_name       TEXT NOT NULL,
+  -- Optional website, shown on the public roll. Normalised before it is stored.
+  link               TEXT,
   stripe_customer_id TEXT,
   created_at         INTEGER NOT NULL
 );
@@ -177,13 +195,28 @@ const rows = SPOTS.map((spot) => {
     name: spot.name,
     panel: spot.panel,
     blurb: spot.blurb,
-    floorPriceCents: metrics.floorPriceCents,
+    // Every spot opens at the same price whatever its size; `metrics` is only
+    // consulted for the real-world centimetres.
+    floorPriceCents: AUCTION.openingPriceCents,
     widthCm: metrics.widthCm,
     heightCm: metrics.heightCm,
     closesAt,
     createdAt: now,
   };
 });
+
+// A spot deleted in /admin and exported out of the config has to leave the
+// database too, or a redeploy onto an existing volume would resurrect it. Ones
+// carrying bids are left alone and reported: money is attached to them.
+const configKeys = new Set(rows.map((row) => row.key));
+const orphans = db
+  .prepare("SELECT id, key, name FROM spots")
+  .all()
+  .filter((row) => !configKeys.has(row.key))
+  .map((row) => ({
+    ...row,
+    bids: db.prepare("SELECT COUNT(*) AS n FROM bids WHERE spot_id = ?").get(row.id).n,
+  }));
 
 db.transaction(() => {
   if (RESET) {
@@ -192,6 +225,9 @@ db.transaction(() => {
     db.exec("UPDATE spots SET status = 'open', extension_count = 0");
   }
   for (const row of rows) upsert.run(row);
+  for (const orphan of orphans) {
+    if (orphan.bids === 0) db.prepare("DELETE FROM spots WHERE id = ?").run(orphan.id);
+  }
 })();
 
 /* ------------------------------------------------------------------ *
@@ -212,7 +248,7 @@ const keyWidth = Math.max(12, ...rows.map((row) => row.key.length));
 const sizeOf = (row) => `${cm(row.widthCm)} x ${cm(row.heightCm)} cm`;
 const sizeWidth = Math.max(16, ...rows.map((row) => sizeOf(row).length));
 
-console.log(`\n${CAR.name} — ${rows.length} spots  ·  ${dbPath}`);
+console.log(`\n${CAR.name}: ${rows.length} spots  ·  ${dbPath}`);
 console.log(`Closing ${new Date(closesAt).toISOString()} (${AUCTION.durationHours / 24} days)\n`);
 console.log(`  ${pad("SPOT", keyWidth)}  ${pad("SIZE", sizeWidth)}  ${padStart("FLOOR", 8)}`);
 console.log(`  ${"-".repeat(keyWidth)}  ${"-".repeat(sizeWidth)}  ${"-".repeat(8)}`);
@@ -228,11 +264,16 @@ console.log(
   `  ${pad("FLOOR TOTAL", keyWidth)}  ${pad("", sizeWidth)}  ` +
     `${padStart(euros.format(floorTotalCents / 100), 8)}`,
 );
-console.log(
-  `  ${pad("GOAL", keyWidth)}  ${pad("", sizeWidth)}  ` +
-    `${padStart(euros.format(AUCTION.goalCents / 100), 8)}` +
-    `   (floor covers ${Math.round((floorTotalCents / AUCTION.goalCents) * 100)}%)`,
-);
+for (const orphan of orphans) {
+  console.log(
+    orphan.bids === 0
+      ? `
+  removed ${orphan.key}: no longer in src/config/car.ts.`
+      : `
+  KEPT ${orphan.key}: gone from the config but carrying ${orphan.bids} bid(s). ` +
+        "Delete it in /admin first if you really mean to drop it.",
+  );
+}
 
 if (RESET) console.log("\n  --reset: bids, bidders and artwork deleted; every spot reopened.");
 console.log("");

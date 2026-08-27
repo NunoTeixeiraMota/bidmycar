@@ -12,7 +12,7 @@ export interface BidDialogProps {
   /** True when the visitor already holds this spot; the copy becomes a raise. */
   holding?: boolean;
   /** Prefill from /api/me so a returning bidder doesn't retype. */
-  bidder?: { email: string; displayName: string } | null;
+  bidder?: { email: string; displayName: string; link?: string | null } | null;
   /** AuctionState.serverNow, for the closing clock. */
   serverNow?: number;
   /** Called once a demo-mode bid has settled, so the board can re-read state. */
@@ -60,6 +60,7 @@ export default function BidDialog({
   const amountId = `${ids}-amount`;
   const emailId = `${ids}-email`;
   const nameId = `${ids}-name`;
+  const linkId = `${ids}-link`;
 
   const [amount, setAmount] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -72,8 +73,10 @@ export default function BidDialog({
   // field in without ever overwriting something the visitor has typed.
   const [emailEdit, setEmailEdit] = useState<string | null>(null);
   const [nameEdit, setNameEdit] = useState<string | null>(null);
+  const [linkEdit, setLinkEdit] = useState<string | null>(null);
   const email = emailEdit ?? bidder?.email ?? "";
   const displayName = nameEdit ?? bidder?.displayName ?? "";
+  const link = linkEdit ?? bidder?.link ?? "";
 
   // The server can tell us the bar moved under us; that beats the snapshot the
   // board was rendered from until the next state frame arrives.
@@ -99,7 +102,7 @@ export default function BidDialog({
   }
 
   // showModal() is what buys the focus trap, the inert background, Escape, and
-  // the return of focus to whatever opened the dialog — all of which a
+  // the return of focus to whatever opened the dialog, all of which a
   // hand-rolled role="dialog" would have to reimplement badly.
   const isOpen = spotKey !== null;
   useEffect(() => {
@@ -180,6 +183,9 @@ export default function BidDialog({
           amountCents: cents,
           email: trimmedEmail,
           displayName: trimmedName,
+          // Optional, and the server drops anything it cannot turn into an
+          // http(s) address rather than refusing the bid over it.
+          link: link.trim() || undefined,
         }),
       });
       result = (await response.json()) as StartBidResult;
@@ -187,7 +193,7 @@ export default function BidDialog({
       setSubmitting(false);
       setNotice({
         tone: "error",
-        text: "We couldn't reach the auction. Nothing has been charged — check your connection and try again.",
+        text: "We couldn't reach the auction. Nothing has been charged. Check your connection and try again.",
       });
       return;
     }
@@ -208,7 +214,7 @@ export default function BidDialog({
       }
       setNotice({
         tone: "error",
-        text: "The bid was accepted but no payment page came back. Nothing has been charged — please try again.",
+        text: "The bid was accepted but no payment page came back. Nothing has been charged. Please try again.",
       });
       return;
     }
@@ -234,7 +240,7 @@ export default function BidDialog({
         const next = result.minimumNextBidCents ?? minCents;
         setNotice({
           tone: "info",
-          text: `You already hold this spot. You can raise your own bid to ${formatMoney(next)} or more — the difference is charged, and the whole lot is refunded if someone outbids you.`,
+          text: `You already hold this spot. You can raise your own bid to ${formatMoney(next)} or more. The difference is charged on top of what you have already paid.`,
           raiseToCents: next,
         });
         break;
@@ -264,7 +270,7 @@ export default function BidDialog({
       case "stripe_unavailable": {
         setNotice({
           tone: "error",
-          text: "Payments aren't configured on this site, so no bid can be taken right now. Nothing has been charged — this one is ours to fix, not yours.",
+          text: "Payments aren't configured on this site, so no bid can be taken right now. Nothing has been charged. This one is ours to fix, not yours.",
         });
         break;
       }
@@ -366,10 +372,10 @@ export default function BidDialog({
               </dl>
 
               <p id={termsId} className="mt-5 text-[13px] leading-relaxed text-muted">
-                You pay now, in full, through Stripe — this is a charge, not a hold. If
-                someone outbids you, that payment is refunded automatically and in full;
-                you never have to ask. Hold the spot when its clock stops and your logo is
-                cut in vinyl and applied to the real car.
+                You pay now, in full, through Stripe. This is a charge, not a hold, and it
+                is not refunded: if someone outbids you, you lose the spot and the money
+                stays with us. Hold the spot when its clock stops and your logo is cut in
+                vinyl and applied to the real car.
               </p>
 
               <form onSubmit={handleSubmit} noValidate className="mt-7">
@@ -498,9 +504,32 @@ export default function BidDialog({
                       </p>
                     ) : (
                       <p id={`${emailId}-hint`} className="mt-2 text-[12px] text-faint">
-                        Receipt, refunds and your logo upload link. Never shown publicly.
+                        Receipt and your logo upload link. Never shown publicly.
                       </p>
                     )}
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label htmlFor={linkId} className="block text-[13px] font-medium text-ink">
+                      Website <span className="font-normal text-faint">(optional)</span>
+                    </label>
+                    <input
+                      id={linkId}
+                      name="link"
+                      type="url"
+                      inputMode="url"
+                      autoComplete="url"
+                      placeholder="acme.ie"
+                      maxLength={300}
+                      disabled={formDisabled}
+                      value={link}
+                      onChange={(event) => setLinkEdit(event.target.value)}
+                      aria-describedby={`${linkId}-hint`}
+                      className="mt-2 w-full rounded-xl border border-hairline bg-canvas px-3.5 py-3 text-[15px] outline-none transition-colors duration-200 focus:border-signal"
+                    />
+                    <p id={`${linkId}-hint`} className="mt-2 text-[12px] text-faint">
+                      Linked from your name on the bidders list.
+                    </p>
                   </div>
                 </div>
 
@@ -560,8 +589,8 @@ export default function BidDialog({
                 <strong className="font-medium text-ink">no money moved</strong> and no card
                 was touched. The bid was settled as though it had been paid. On the live
                 auction you would have been sent to Stripe Checkout and charged{" "}
-                {formatMoney(demoPlacedCents)} at this point, and refunded in full the moment
-                anyone outbid you.
+                {formatMoney(demoPlacedCents)} at this point, and that charge would not come
+                back if anyone outbid you.
               </p>
               <div className="mt-7 flex justify-end">
                 <button

@@ -1,4 +1,4 @@
-import { AUCTION, SPOTS, type SpotDefinition } from "@/config/car";
+import { AUCTION, SPOTS, metricsFor, type SpotDefinition } from "@/config/car";
 import {
   db,
   getArtworkByBidId,
@@ -10,6 +10,7 @@ import {
   getSpotByKey,
   getTotalRaisedCents,
   insertBid,
+  listPaidBids,
   listSpots,
   transaction,
   updateBid,
@@ -22,6 +23,7 @@ import {
   type Bid,
   type BidRejectionReason,
   type CloseResult,
+  type RollEntry,
   type SettlementResult,
   type Spot,
   type SpotView,
@@ -32,7 +34,7 @@ import {
  *
  * Two-step lifecycle. A bid is CREATED as `pending_payment` when the bidder is
  * sent to Stripe, and SETTLED when Stripe confirms the money arrived. Only a
- * settled bid can hold a spot or move a price — otherwise anyone could freeze
+ * settled bid can hold a spot or move a price; otherwise anyone could freeze
  * a spot at an unreachable price by opening a checkout and walking away.
  *
  * Every mutation below runs in one transaction and re-reads the spot and its
@@ -51,7 +53,7 @@ export type AuctionErrorCode =
   | "not_expirable"
   | "write_failed";
 
-/** Thrown only for states the caller should never have reached — a rejected
+/** Thrown only for states the caller should never have reached: a rejected
  *  bid is a return value, not an exception. */
 export class AuctionError extends Error {
   readonly code: AuctionErrorCode;
@@ -77,7 +79,7 @@ function ranked(bids: Bid[]): Bid[] {
 /**
  * The bid holding a spot: highest settled amount, ties won by the earlier
  * sequence. Matching an existing bid is not beating it, so the incumbent keeps
- * the spot — which is also why `minimumBidFor` demands a strict increment.
+ * the spot, which is also why `minimumBidFor` demands a strict increment.
  */
 export function topBidOf(bids: Bid[]): Bid | null {
   return ranked(bids)[0] ?? null;
@@ -221,8 +223,8 @@ function unrefundedOutbidIds(spotId: string | null): string[] {
 /**
  * Record that Stripe confirmed payment for a bid, and re-rank the spot.
  *
- * Stripe redelivers webhooks — for hours, after a 500, and sometimes out of
- * order — so this is called more than once for the same bid as a matter of
+ * Stripe redelivers webhooks for hours, after a 500, and sometimes out of
+ * order, so this is called more than once for the same bid as a matter of
  * routine, not as an error case.
  */
 export function settleBid(input: SettleBidInput): SettlementResult {
@@ -248,7 +250,7 @@ export function settleBid(input: SettleBidInput): SettlementResult {
     const bid = updateBid(existing.id, patch);
     if (!bid) throw new AuctionError("write_failed", `Bid ${bidId} vanished mid-settlement.`);
 
-    // A payment confirmed after the clock stopped cannot win the spot — the
+    // A payment confirmed after the clock stopped cannot win the spot: the
     // winner was decided from the bids that had settled by then. Marking it
     // outbid here is what makes the API layer refund it.
     if (spot.status === "closed") {
@@ -288,7 +290,7 @@ export function settleBid(input: SettleBidInput): SettlementResult {
  * The answer for a redelivered webhook: current truth, no writes.
  *
  * `displacedBidId` is reconstructed as the beaten bid still awaiting its money
- * back — the previous holder held the highest amount of anything now outbid, so
+ * back: the previous holder held the highest amount of anything now outbid, so
  * it ranks first. Once that refund lands the field goes null, which is what
  * stops a redelivery days later from refunding the same card twice.
  */
@@ -350,7 +352,55 @@ export function expireBid(bidId: string, now: number): Bid | null {
  * The board
  * ------------------------------------------------------------------ */
 
-function viewOf(spot: Spot, geometry: SpotDefinition, now: number): SpotView {
+/**
+ * A spot with no survey and no override, which is a corrupt row rather than a
+ * normal state: a console-created spot always writes its own box. Drawn small
+ * and out of the way so it can be found and fixed instead of covering the car.
+ */
+const ORPHAN_BOX = { x: 1, y: 1, w: 6, h: 6, difficulty: "mild" } as const;
+
+/**
+ * The definition a spot is drawn and priced from.
+ *
+ * Three sources, in order: what the admin console wrote onto the row, the
+ * shipped survey in src/config/car.ts, and a small default box. The survey is
+ * still the default for every spot that came from it, so a bad edit is one
+ * reset away from the original measurement; but a spot the console created has
+ * no survey at all, which is why the row has to be able to carry a whole
+ * definition on its own.
+ *
+ * Text always comes from the row, because renaming a spot is a database edit.
+ */
+export function definitionOf(spot: Spot): SpotDefinition {
+  const shipped = SPOTS.find((candidate) => candidate.key === spot.key) ?? null;
+  const base = shipped ?? { key: spot.key, ...ORPHAN_BOX };
+
+  // A half-written override (three columns set, one null) is not a box, so it
+  // falls back rather than drawing the spot at x = 0.
+  const complete = spot.x !== null && spot.y !== null && spot.w !== null && spot.h !== null;
+
+  return {
+    ...base,
+    key: spot.key,
+    name: spot.name,
+    panel: spot.panel,
+    blurb: spot.blurb,
+    x: complete ? spot.x! : base.x,
+    y: complete ? spot.y! : base.y,
+    w: complete ? spot.w! : base.w,
+    h: complete ? spot.h! : base.h,
+    shape: spot.shape ?? shipped?.shape,
+    difficulty: spot.difficulty ?? base.difficulty,
+  };
+}
+
+function viewOf(spot: Spot, now: number): SpotView {
+  const geometry = definitionOf(spot);
+  // Centimetres follow the box on screen, so a resized spot reports the size it
+  // would really be cut at. The floor price does not: it was quoted when the
+  // spot opened and bidders have already committed money against it.
+  const measured = metricsFor(geometry);
+
   const paid = getPaidBidsForSpot(spot.id);
   const top = topBidOf(paid);
   const holderBidder = top ? getBidderById(top.bidderId) : null;
@@ -367,8 +417,8 @@ function viewOf(spot: Spot, geometry: SpotDefinition, now: number): SpotView {
     w: geometry.w,
     h: geometry.h,
     shape: geometry.shape ?? "rect",
-    widthCm: spot.widthCm,
-    heightCm: spot.heightCm,
+    widthCm: measured.widthCm,
+    heightCm: measured.heightCm,
 
     floorPriceCents: spot.floorPriceCents,
     currentPriceCents: priceOf(spot, paid),
@@ -397,14 +447,10 @@ function viewOf(spot: Spot, geometry: SpotDefinition, now: number): SpotView {
 
 /** Everything the board renders from, in one read. */
 export function getAuctionState(now: number): AuctionState {
-  // Iterating the config rather than the table fixes the order the board reads
-  // in, and skips any row whose geometry we could not place on the photo.
-  const spotsByKey = new Map(listSpots().map((spot) => [spot.key, spot]));
-  const spots: SpotView[] = [];
-  for (const geometry of SPOTS) {
-    const spot = spotsByKey.get(geometry.key);
-    if (spot) spots.push(viewOf(spot, geometry, now));
-  }
+  // The table is the list of spots, not the config: the admin console can add
+  // and delete them, so a spot that exists only in the database still has to
+  // reach the board, and one deleted from it has to leave.
+  const spots = listSpots().map((spot) => viewOf(spot, now));
 
   const openCloses = spots.filter((s) => s.status !== "closed" && now < s.closesAt);
   const allClosed = openCloses.length === 0;
@@ -412,19 +458,42 @@ export function getAuctionState(now: number): AuctionState {
     ? spots.reduce((latest, s) => Math.max(latest, s.closesAt), now)
     : openCloses.reduce((earliest, s) => Math.min(earliest, s.closesAt), Number.POSITIVE_INFINITY);
 
+  // Money taken so far. There is no target it is measured against: the auction
+  // ends on its clock, not on a number being reached.
   const totalRaisedCents = getTotalRaisedCents();
 
   return {
     spots,
     totalRaisedCents,
-    goalCents: AUCTION.goalCents,
-    goalPercent: Math.round((totalRaisedCents / AUCTION.goalCents) * 100),
     spotsTaken: spots.filter((s) => s.holder !== null).length,
     spotsTotal: spots.length,
     closesAt,
     serverNow: now,
     allClosed,
   };
+}
+
+/**
+ * The public roll: every bid that ever took money, biggest first.
+ *
+ * This is not the spot board. A spot shows who is winning it now; the roll
+ * shows everyone who has ever paid, including the bidders who were displaced,
+ * because their money was not returned to them.
+ */
+export function getBidRoll(): RollEntry[] {
+  return listPaidBids().map((row) => ({
+    bidId: row.bid_id,
+    displayName: row.display_name,
+    link: row.link,
+    logoUrl: row.artwork_id ? `/api/artwork/${row.artwork_id}/file` : null,
+    spotKey: row.spot_key,
+    spotName: row.spot_name,
+    amountCents: row.amount_cents,
+    paidAt: row.paid_at ?? row.created_at,
+    // settleBid marks the displaced bid "outbid", so anything still paid or won
+    // is the standing holder of its spot.
+    holding: row.status === "paid" || row.status === "won",
+  }));
 }
 
 /* ------------------------------------------------------------------ *
@@ -435,7 +504,7 @@ export function getAuctionState(now: number): AuctionState {
  * Stop the clock on every spot whose time is up.
  *
  * Idempotent by construction: a spot already `closed` is skipped, so a second
- * sweep reports nothing and changes nothing. Refunds are not issued here — the
+ * sweep reports nothing and changes nothing. Refunds are not issued here; the
  * ids are handed back for the API layer to pay out through Stripe.
  */
 export function closeAuction(now: number): CloseResult {

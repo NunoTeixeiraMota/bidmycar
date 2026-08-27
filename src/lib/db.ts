@@ -73,7 +73,7 @@ export function getDb(): Database.Database {
  * The raw handle, for the rare query the accessors below do not cover.
  *
  * It is a proxy rather than an eagerly-opened instance so that importing this
- * module never touches the filesystem — the first *use* opens and migrates.
+ * module never touches the filesystem; the first *use* opens and migrates.
  * Methods are bound to the real handle because better-sqlite3 is native code
  * and will not accept a proxy as its receiver.
  */
@@ -104,6 +104,14 @@ CREATE TABLE IF NOT EXISTS spots (
   floor_price_cents INTEGER NOT NULL,
   width_cm          REAL NOT NULL,
   height_cm         REAL NOT NULL,
+  -- Geometry override from the admin console, as a percentage of the car
+  -- photo. NULL means "use the shipped survey in src/config/car.ts".
+  x                 REAL,
+  y                 REAL,
+  w                 REAL,
+  h                 REAL,
+  shape             TEXT,
+  difficulty        TEXT,
   status            TEXT NOT NULL,
   closes_at         INTEGER NOT NULL,
   extension_count   INTEGER NOT NULL DEFAULT 0,
@@ -114,6 +122,8 @@ CREATE TABLE IF NOT EXISTS bidders (
   id                 TEXT PRIMARY KEY,
   email              TEXT NOT NULL UNIQUE,
   display_name       TEXT NOT NULL,
+  -- Optional website, shown on the public roll. Normalised before it is stored.
+  link               TEXT,
   stripe_customer_id TEXT,
   created_at         INTEGER NOT NULL
 );
@@ -169,8 +179,40 @@ CREATE INDEX IF NOT EXISTS idx_artwork_bid ON artwork(bid_id);
 CREATE INDEX IF NOT EXISTS idx_artwork_review ON artwork(review_status);
 `;
 
+/**
+ * Columns added to `spots` after the first release.
+ *
+ * `CREATE TABLE IF NOT EXISTS` is a no-op on a database that already has the
+ * table, so a schema edit alone would leave existing installs a column short.
+ * Each of these is added only when the table is missing it, which makes the
+ * step idempotent and safe to run on every open.
+ */
+const ADDITIONS: ReadonlyArray<{ table: string; column: string; ddl: string }> = [
+  { table: "spots", column: "x", ddl: "ALTER TABLE spots ADD COLUMN x REAL" },
+  { table: "spots", column: "y", ddl: "ALTER TABLE spots ADD COLUMN y REAL" },
+  { table: "spots", column: "w", ddl: "ALTER TABLE spots ADD COLUMN w REAL" },
+  { table: "spots", column: "h", ddl: "ALTER TABLE spots ADD COLUMN h REAL" },
+  { table: "spots", column: "shape", ddl: "ALTER TABLE spots ADD COLUMN shape TEXT" },
+  { table: "spots", column: "difficulty", ddl: "ALTER TABLE spots ADD COLUMN difficulty TEXT" },
+  { table: "bidders", column: "link", ddl: "ALTER TABLE bidders ADD COLUMN link TEXT" },
+];
+
 function migrate(handle: Database.Database): void {
   handle.exec(SCHEMA);
+
+  const columnsOf = (table: string) =>
+    new Set(
+      handle
+        .prepare<[string], { name: string }>("SELECT name FROM pragma_table_info(?)")
+        .all(table)
+        .map((row) => row.name),
+    );
+
+  const present = new Map<string, Set<string>>();
+  for (const addition of ADDITIONS) {
+    if (!present.has(addition.table)) present.set(addition.table, columnsOf(addition.table));
+    if (!present.get(addition.table)!.has(addition.column)) handle.exec(addition.ddl);
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -212,6 +254,12 @@ interface SpotRow {
   floor_price_cents: number;
   width_cm: number;
   height_cm: number;
+  x: number | null;
+  y: number | null;
+  w: number | null;
+  h: number | null;
+  shape: string | null;
+  difficulty: string | null;
   status: string;
   closes_at: number;
   extension_count: number;
@@ -222,8 +270,23 @@ interface BidderRow {
   id: string;
   email: string;
   display_name: string;
+  link: string | null;
   stripe_customer_id: string | null;
   created_at: number;
+}
+
+/** One row of the public roll, joined across bid, bidder, spot and artwork. */
+export interface PaidBidRow {
+  bid_id: string;
+  amount_cents: number;
+  paid_at: number | null;
+  created_at: number;
+  status: string;
+  display_name: string;
+  link: string | null;
+  spot_key: string;
+  spot_name: string;
+  artwork_id: string | null;
 }
 
 interface BidRow {
@@ -266,6 +329,14 @@ function toSpot(row: SpotRow): Spot {
     floorPriceCents: row.floor_price_cents,
     widthCm: row.width_cm,
     heightCm: row.height_cm,
+    x: row.x,
+    y: row.y,
+    w: row.w,
+    h: row.h,
+    shape: row.shape === "ellipse" || row.shape === "rect" ? row.shape : null,
+    difficulty: DIFFICULTIES.has(row.difficulty ?? "")
+      ? (row.difficulty as Spot["difficulty"])
+      : null,
     status: row.status as SpotStatus,
     closesAt: row.closes_at,
     extensionCount: row.extension_count,
@@ -278,6 +349,7 @@ function toBidder(row: BidderRow): Bidder {
     id: row.id,
     email: row.email,
     displayName: row.display_name,
+    link: row.link,
     stripeCustomerId: row.stripe_customer_id,
     createdAt: row.created_at,
   };
@@ -358,6 +430,12 @@ const SPOT_COLUMNS: Readonly<Record<string, string>> = {
   floorPriceCents: "floor_price_cents",
   widthCm: "width_cm",
   heightCm: "height_cm",
+  x: "x",
+  y: "y",
+  w: "w",
+  h: "h",
+  shape: "shape",
+  difficulty: "difficulty",
   status: "status",
   closesAt: "closes_at",
   extensionCount: "extension_count",
@@ -366,6 +444,7 @@ const SPOT_COLUMNS: Readonly<Record<string, string>> = {
 const BIDDER_COLUMNS: Readonly<Record<string, string>> = {
   email: "email",
   displayName: "display_name",
+  link: "link",
   stripeCustomerId: "stripe_customer_id",
 };
 
@@ -393,8 +472,12 @@ const ARTWORK_COLUMNS: Readonly<Record<string, string>> = {
  * Spots
  * ------------------------------------------------------------------ */
 
+/** Values the difficulty column is allowed to hold; anything else reads null. */
+const DIFFICULTIES = new Set(["flat", "glass", "mild", "curved"]);
+
 const SPOT_FIELDS = `id, key, name, panel, blurb, floor_price_cents, width_cm, height_cm,
-                     status, closes_at, extension_count, created_at`;
+                     x, y, w, h, shape, difficulty, status, closes_at, extension_count,
+                     created_at`;
 
 export function getSpotByKey(key: string): Spot | null {
   const row = stmt<SpotRow>(`SELECT ${SPOT_FIELDS} FROM spots WHERE key = ?`).get(key);
@@ -424,6 +507,13 @@ export function insertSpot(input: {
   widthCm: number;
   heightCm: number;
   closesAt: number;
+  /** Geometry, for a spot the admin console created rather than the survey. */
+  x?: number | null;
+  y?: number | null;
+  w?: number | null;
+  h?: number | null;
+  shape?: Spot["shape"];
+  difficulty?: Spot["difficulty"];
   status?: SpotStatus;
   id?: string;
   createdAt?: number;
@@ -437,6 +527,14 @@ export function insertSpot(input: {
     floorPriceCents: input.floorPriceCents,
     widthCm: input.widthCm,
     heightCm: input.heightCm,
+    // A seeded spot carries no override and takes the shipped survey as its
+    // geometry. One created in the console has no survey, so it brings its own.
+    x: input.x ?? null,
+    y: input.y ?? null,
+    w: input.w ?? null,
+    h: input.h ?? null,
+    shape: input.shape ?? null,
+    difficulty: input.difficulty ?? null,
     status: input.status ?? "open",
     closesAt: input.closesAt,
     extensionCount: 0,
@@ -445,8 +543,9 @@ export function insertSpot(input: {
 
   stmt(
     `INSERT INTO spots (id, key, name, panel, blurb, floor_price_cents, width_cm, height_cm,
+                        x, y, w, h, shape, difficulty,
                         status, closes_at, extension_count, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     spot.id,
     spot.key,
@@ -456,6 +555,12 @@ export function insertSpot(input: {
     spot.floorPriceCents,
     spot.widthCm,
     spot.heightCm,
+    spot.x,
+    spot.y,
+    spot.w,
+    spot.h,
+    spot.shape,
+    spot.difficulty,
     spot.status,
     spot.closesAt,
     spot.extensionCount,
@@ -470,11 +575,29 @@ export function updateSpot(id: string, patch: Partial<Spot>): Spot | null {
   return getSpotById(id);
 }
 
+/** Every bid ever aimed at this spot, whatever became of it. */
+export function countAllBidsForSpot(spotId: string): number {
+  const row = stmt<{ n: number }>(`SELECT COUNT(*) AS n FROM bids WHERE spot_id = ?`).get(spotId);
+  return row?.n ?? 0;
+}
+
+/**
+ * Remove a spot outright.
+ *
+ * Callers must establish that nothing points at it first: bids and artwork
+ * carry its id, and SQLite is not enforcing those references for us, so a spot
+ * deleted out from under a bid would leave a row nothing can resolve. The admin
+ * route refuses on any bid at all rather than relying on this.
+ */
+export function deleteSpot(id: string): boolean {
+  return stmt(`DELETE FROM spots WHERE id = ?`).run(id).changes > 0;
+}
+
 /* ------------------------------------------------------------------ *
  * Bidders
  * ------------------------------------------------------------------ */
 
-const BIDDER_FIELDS = `id, email, display_name, stripe_customer_id, created_at`;
+const BIDDER_FIELDS = `id, email, display_name, link, stripe_customer_id, created_at`;
 
 export function getBidderById(id: string): Bidder | null {
   const row = stmt<BidderRow>(`SELECT ${BIDDER_FIELDS} FROM bidders WHERE id = ?`).get(id);
@@ -492,6 +615,7 @@ export function getBidderByEmail(email: string): Bidder | null {
 export function insertBidder(input: {
   email: string;
   displayName: string;
+  link?: string | null;
   stripeCustomerId?: string | null;
   id?: string;
   createdAt?: number;
@@ -500,17 +624,19 @@ export function insertBidder(input: {
     id: input.id ?? newId("bdr"),
     email: input.email.trim(),
     displayName: input.displayName.trim(),
+    link: input.link ?? null,
     stripeCustomerId: input.stripeCustomerId ?? null,
     createdAt: input.createdAt ?? Date.now(),
   };
 
   stmt(
-    `INSERT INTO bidders (id, email, display_name, stripe_customer_id, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
+    `INSERT INTO bidders (id, email, display_name, link, stripe_customer_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
   ).run(
     bidder.id,
     bidder.email,
     bidder.displayName,
+    bidder.link,
     bidder.stripeCustomerId,
     bidder.createdAt,
   );
@@ -521,6 +647,40 @@ export function insertBidder(input: {
 export function updateBidder(id: string, patch: Partial<Bidder>): Bidder | null {
   applyPatch<Bidder>("bidders", BIDDER_COLUMNS, id, patch);
   return getBidderById(id);
+}
+
+/**
+ * Every bid that ever took money, biggest first.
+ *
+ * `paid_at IS NOT NULL` is the test, not the status: a bid that was outbid is
+ * still money this car was paid, and since nothing is refunded it stays on the
+ * roll for good. Abandoned checkouts and declines never set `paid_at`, so they
+ * are absent without needing to be listed.
+ *
+ * Artwork is a correlated subquery rather than a join because re-uploading
+ * supersedes rather than replaces: a bid can own several artwork rows, and a
+ * join would put the bid on the roll once per upload.
+ */
+export function listPaidBids(): PaidBidRow[] {
+  return stmt<PaidBidRow>(
+    `SELECT b.id            AS bid_id,
+            b.amount_cents  AS amount_cents,
+            b.paid_at       AS paid_at,
+            b.created_at    AS created_at,
+            b.status        AS status,
+            d.display_name  AS display_name,
+            d.link          AS link,
+            s.key           AS spot_key,
+            s.name          AS spot_name,
+            (SELECT a.id FROM artwork a
+              WHERE a.bid_id = b.id AND a.review_status = 'approved'
+              ORDER BY a.created_at DESC LIMIT 1) AS artwork_id
+       FROM bids b
+       JOIN bidders d ON d.id = b.bidder_id
+       JOIN spots   s ON s.id = b.spot_id
+      WHERE b.paid_at IS NOT NULL
+      ORDER BY b.amount_cents DESC, b.paid_at ASC`,
+  ).all();
 }
 
 /* ------------------------------------------------------------------ *
@@ -748,7 +908,7 @@ export function updateArtwork(id: string, patch: Partial<Artwork>): Artwork | nu
 }
 
 /**
- * How many bids on this spot ever represented real money — including ones since
+ * How many bids on this spot ever represented real money, including ones since
  * outbid and refunded. This is deliberately NOT the count of currently-paid
  * bids: a spot two people fought over reads "1 bid" under that definition,
  * which understates the contest. Abandoned checkouts and declines are excluded,

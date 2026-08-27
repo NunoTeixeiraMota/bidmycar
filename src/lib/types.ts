@@ -2,13 +2,18 @@
  * Domain contracts.
  *
  * MONEY RULE: every monetary value is an integer number of cents. Floats never
- * touch money — not in the DB, not in the engine, not in an API payload.
+ * touch money: not in the DB, not in the engine, not in an API payload.
  * Formatting happens only at the render edge, via `formatMoney` in ./money.
  *
  * THE MODEL: the car is not for sale. Eleven regions of its bodywork are.
- * A bidder pays to hold a spot; if someone outbids them they are refunded and
- * the spot changes hands. Whoever holds a spot when the clock stops gets their
- * logo cut in vinyl and applied to the real car.
+ * A bidder pays to hold a spot; if someone outbids them the spot changes hands
+ * and, as the published conditions say, their payment is not returned. Whoever
+ * holds a spot when the clock stops gets their logo cut in vinyl and applied to
+ * the real car.
+
+ * NOTE: the engine below still refunds displaced bids at close. The site copy
+ * says otherwise, deliberately and on request; reconciling the two is a
+ * separate piece of work.
  */
 
 export type Currency = "EUR";
@@ -22,6 +27,12 @@ export interface Bidder {
   email: string;
   /** Shown publicly beside the spots they hold. */
   displayName: string;
+  /**
+   * Optional website, shown as a link on the public roll. Stored only after it
+   * has been normalised to an http(s) URL, because this value ends up in an
+   * href on a page anyone can read.
+   */
+  link: string | null;
   stripeCustomerId: string | null;
   createdAt: number;
 }
@@ -100,7 +111,15 @@ export interface Artwork {
 
 export type SpotStatus = "open" | "held" | "closed";
 
-/** The persisted half of a spot. Geometry lives in src/config/car.ts. */
+/**
+ * The persisted half of a spot.
+ *
+ * Geometry ships in src/config/car.ts and is the default. The five nullable
+ * fields below are the admin console's override, written when someone drags or
+ * resizes a spot on the car; null in all of them means "use the shipped
+ * measurement". Keeping the config as the floor means a bad edit is always one
+ * reset away from the original survey.
+ */
 export interface Spot {
   id: string;
   key: string;
@@ -110,6 +129,18 @@ export interface Spot {
   floorPriceCents: number;
   widthCm: number;
   heightCm: number;
+  /** Percentage of the photo's width/height, or null to use the config. */
+  x: number | null;
+  y: number | null;
+  w: number | null;
+  h: number | null;
+  shape: "rect" | "ellipse" | null;
+  /**
+   * How awkward this panel is to lay vinyl on, which is what scales the labour
+   * half of the floor price. Null falls back to the shipped survey; a spot the
+   * admin console created has no survey, so it always carries its own.
+   */
+  difficulty: "flat" | "glass" | "mild" | "curved" | null;
   status: SpotStatus;
   /** Per-spot clock. Anti-snipe extends one spot, not the whole auction. */
   closesAt: number;
@@ -147,21 +178,41 @@ export interface SpotView {
     since: number;
     /** Only set once artwork exists AND a human approved it. */
     logoUrl: string | null;
-    /** True when artwork is uploaded but not yet approved — the UI shows a
+    /** True when artwork is uploaded but not yet approved; the UI shows a
      *  pending marker rather than the logo, mirroring "under review". */
     artworkPending: boolean;
   } | null;
+}
+
+/**
+ * One paid bid, as the public roll shows it.
+ *
+ * Every bid that ever took money is on the roll, including the ones that were
+ * later outbid: those are not refunded, so they are money this car was paid and
+ * they belong on the list as much as a winning bid does.
+ */
+export interface RollEntry {
+  bidId: string;
+  displayName: string;
+  /** Normalised http(s) URL, or null when the bidder gave none. */
+  link: string | null;
+  /** Only set once a human approved the artwork on this bid. */
+  logoUrl: string | null;
+  spotKey: string;
+  spotName: string;
+  amountCents: number;
+  paidAt: number;
+  /** True when this bid still holds its spot. */
+  holding: boolean;
 }
 
 /** One payload driving the whole board. */
 export interface AuctionState {
   spots: SpotView[];
   totalRaisedCents: number;
-  goalCents: number;
-  goalPercent: number;
   spotsTaken: number;
   spotsTotal: number;
-  /** The earliest spot close — what the headline countdown shows. */
+  /** When bidding stops. Every spot closes together, so this is the deadline. */
   closesAt: number;
   /** Server clock at render time. Clients offset against this rather than
    *  trusting their own, which may be minutes out. */

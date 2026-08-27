@@ -11,12 +11,14 @@
     "test:watch": "vitest",
     "seed": "node scripts/seed.mjs",
     "seed:reset": "node scripts/seed.mjs --reset",
-    "seed:demo": "node scripts/seed-demo.mjs"
+    "seed:demo": "node scripts/seed-demo.mjs",
+    "spots:export": "node scripts/export-spots.mjs"
   },
   "dependencies": {
     "@stripe/react-stripe-js": "^6.8.2",
     "@stripe/stripe-js": "^9.14.0",
     "better-sqlite3": "^13.0.3",
+    "datafast": "^3.0.18",
     "next": "16.3.3",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -35,7 +37,7 @@
     "typescript": "^5",
     "vitest": "^4.1.11"
   },
-  "description": "Online auction platform for a 1974 Datsun 100A — live proxy bidding with Stripe deposit holds.",
+  "description": "Online auction platform for a 1974 Datsun 100A \u2014 live proxy bidding with Stripe deposit holds.",
   "engines": {
     "node": ">=20.9.0"
   }

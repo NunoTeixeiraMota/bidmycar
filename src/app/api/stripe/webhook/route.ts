@@ -12,8 +12,8 @@ import type { Bid } from "@/lib/types";
 
 /**
  * Stripe's half of the conversation, and the only place a payment becomes a
- * held spot. The browser coming back from Checkout proves nothing — a buyer who
- * closes the tab at the "thanks" screen must still get their panel — so the
+ * held spot. The browser coming back from Checkout proves nothing: a buyer who
+ * closes the tab at the "thanks" screen must still get their panel, so the
  * return page reads state and this route writes it.
  *
  * Everything here is written for repeat delivery. Stripe retries for three days
@@ -23,7 +23,7 @@ import type { Bid } from "@/lib/types";
  *
  * The status code is an instruction, not commentary: 2xx and 4xx both retire the
  * event, 5xx asks for it again later. That is why a bid we cannot find is a log
- * line and a 200 — it almost certainly belongs to another environment pointed at
+ * line and a 200: it almost certainly belongs to another environment pointed at
  * the same endpoint, and 500ing would open a three-day retry loop over data that
  * will never exist in this database.
  */
@@ -126,7 +126,7 @@ async function onCheckoutCompleted(
   const result = settleBid({ bidId: bid.id, paymentIntentId: paymentIntentIdOf(session), now });
 
   // Exactly one bid can be owed money by a settlement: the holder this one
-  // displaced, or — when this payment landed behind a higher one — this one.
+  // displaced, or, when this payment landed behind a higher one, this one.
   const owed = result.displacedBidId ?? (result.becameHolder ? null : result.bidId);
   if (!owed) return { action: "settled", bidId: bid.id };
 
@@ -165,7 +165,7 @@ function onPaymentFailed(bid: Bid | null): Outcome {
  * Write a refund Stripe tells us about onto the bid it belongs to.
  *
  * Refunds we issue ourselves are already recorded by `refundBid`; this is what
- * catches the ones we did not — a refund made by hand in the dashboard, and the
+ * catches the ones we did not: a refund made by hand in the dashboard, and the
  * later `refund.updated` that says one failed after being accepted.
  */
 function onRefundEvent(
@@ -187,7 +187,7 @@ function onRefundEvent(
 
   if (refundStatus === "failed" || refundStatus === "canceled") {
     // The money did not actually go back. Returning the bid to `outbid` with no
-    // refund id is what puts it back in the close job's retry sweep — the engine
+    // refund id is what puts it back in the close job's retry sweep; the engine
     // has no un-refund transition because nothing else should ever need one.
     if (bid.status === "refunded" && bid.stripeRefundId === refundId) {
       updateBid(bid.id, { status: "outbid", stripeRefundId: null, refundedAt: null });
@@ -205,7 +205,7 @@ function onRefundEvent(
   }
 
   // A live bid refunded outside the app. Record it so the ledger is honest, but
-  // do not strip the spot from its holder — a human did this and a human should
+  // do not strip the spot from its holder: a human did this and a human should
   // decide what it meant.
   updateBid(bid.id, { stripeRefundId: refundId, refundedAt: bid.refundedAt ?? now });
   console.warn(`[stripe] bid ${bid.id} is ${bid.status} but was refunded (${refundId}).`);
@@ -274,7 +274,7 @@ export async function POST(req: Request): Promise<Response> {
 
   const parsed = constructWebhookEvent(raw, req.headers.get("stripe-signature") ?? undefined);
   if (!parsed.ok) {
-    // Unverifiable is 400 and final — a forged body must never be retried into
+    // Unverifiable is 400 and final: a forged body must never be retried into
     // us. A missing signing secret is our fault and transient, so 503 keeps the
     // event alive until the environment is fixed.
     const status = parsed.code === "not_configured" ? 503 : 400;

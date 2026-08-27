@@ -10,7 +10,7 @@ import { CURRENCY } from "@/lib/money";
  * DEMO MODE. With no `STRIPE_SECRET_KEY` the app must still work end to end:
  * you can clone this, `npm run seed && npm run dev`, and bid on a spot before
  * you have ever opened a Stripe account. Every call below has a demo path that
- * reports success without money moving, and says so in its result — callers
+ * reports success without money moving, and says so in its result; callers
  * branch on `demo`, they never sniff the environment themselves.
  *
  * NO THROWS. A bid, a webhook and the close job all sit on top of these calls,
@@ -28,7 +28,7 @@ export type { Stripe };
 export type StripeFailureCode =
   | "not_configured" // no secret key, in a place where the demo path cannot stand in
   | "invalid_request" // Stripe rejected the parameters; retrying identically will not help
-  | "duplicate" // idempotency key reused with different parameters — a real double-submit
+  | "duplicate" // idempotency key reused with different parameters: a real double-submit
   | "authentication" // the key is wrong, revoked, or from the other mode
   | "rate_limited"
   | "connection" // never reached Stripe, or the answer never came back
@@ -113,7 +113,7 @@ function client(): Stripe | null {
 
   cached = new Stripe(key, {
     // The SDK's own pinned version, so the request always matches the types
-    // shipped beside it — and follows them on upgrade instead of drifting.
+    // shipped beside it, and follows them on upgrade instead of drifting.
     apiVersion: Stripe.API_VERSION,
     maxNetworkRetries: 2, // safe: every mutating call below carries an idempotency key
     timeout: 20_000,
@@ -166,7 +166,7 @@ function checkoutExpiry(nowSeconds: number): number {
  * Open a Checkout session for one bid.
  *
  * DEMO PATH: with no secret key this returns `{ demo: true }` and touches
- * nothing. The caller is expected to settle the bid immediately — the bid
+ * nothing. The caller is expected to settle the bid immediately: the bid
  * behaves exactly as a paid one, minus the money.
  */
 export async function createCheckoutSession(
@@ -206,7 +206,7 @@ export async function createCheckoutSession(
         // know which bid it belongs to.
         metadata: { bidId: input.bidId, spotKey: input.spotKey },
         payment_intent_data: {
-          description: `${input.spotName} — ${CAR.name}`,
+          description: `${input.spotName} on the ${CAR.name}`,
           metadata: { bidId: input.bidId, spotKey: input.spotKey },
         },
         success_url: input.successUrl,
@@ -235,7 +235,7 @@ export type RetrieveSessionResult =
  * Read a Checkout session back, for the return-from-Stripe page.
  *
  * DEMO PATH: no keys means no session ever existed, so this reports
- * `{ demo: true, session: null }` — the caller should trust its own bid row,
+ * `{ demo: true, session: null }`; the caller should trust its own bid row,
  * which the demo checkout already settled.
  */
 export async function retrieveSession(sessionId: string): Promise<RetrieveSessionResult> {
@@ -271,7 +271,7 @@ export type WebhookEventResult = { ok: true; event: Stripe.Event } | StripeFailu
  * secret this fails closed and the route should answer 503. In demo mode
  * nothing calls it, because nothing ever sent a payment to Stripe.
  *
- * The raw body matters — parse the request with `req.text()`, never `req.json()`
+ * The raw body matters: parse the request with `req.text()`, never `req.json()`
  * and re-stringify, or the signature will not match.
  */
 export function constructWebhookEvent(
@@ -339,7 +339,7 @@ function demoRefundId(seed: string | null): string {
  * refund id rather than as an error that would abort the rest of the batch.
  *
  * DEMO PATH: no keys, or a bid with no payment intent, means nothing was ever
- * charged. Both report success with a synthetic id and `demo: true` — a demo
+ * charged. Both report success with a synthetic id and `demo: true`; a demo
  * auction still has to be able to displace a holder and close.
  */
 export async function refundPayment(
@@ -384,7 +384,7 @@ export async function refundPayment(
           alreadyRefunded: true,
         };
       }
-      // Unexpected state with no refund to show for it — the payment never
+      // Unexpected state with no refund to show for it: the payment never
       // succeeded, so there is nothing to give back and nothing to retry.
       return fail("invalid_request", `Nothing to refund on ${paymentIntentId}: ${err.message}`);
     }

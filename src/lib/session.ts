@@ -8,7 +8,7 @@ import { hostname } from "node:os";
  * name, and the browser proves which bidder it is by presenting an httpOnly
  * cookie holding their id and an HMAC of that id.
  *
- * The cookie is a bearer credential over money — whoever holds it can spend on
+ * The cookie is a bearer credential over money: whoever holds it can spend on
  * a card the site has already charged and can claim the spots that identity
  * holds. So the signature is the whole security story here, which is why an
  * unset secret is a hard failure in production rather than a default.
@@ -56,7 +56,7 @@ function sessionSecret(): string {
   if (!warnedAboutDerivedSecret) {
     warnedAboutDerivedSecret = true;
     console.warn(
-      "[session] SESSION_SECRET is not set — using a secret derived from this " +
+      "[session] SESSION_SECRET is not set, using a secret derived from this " +
         "machine and directory. Fine for development; set a real one before deploying.",
     );
   }
@@ -123,7 +123,7 @@ export interface SessionCookieOptions {
 /**
  * `lax` rather than `strict`: Stripe Checkout sends the buyer back to us as a
  * top-level cross-site navigation, and under `strict` the cookie would not be
- * sent on that request — the bidder would land on their own receipt page
+ * sent on that request, and the bidder would land on their own receipt page
  * signed out.
  */
 export function cookieOptions(): SessionCookieOptions {
@@ -136,7 +136,7 @@ export function cookieOptions(): SessionCookieOptions {
   };
 }
 
-/** Same attributes, zero lifetime — what you set to sign a bidder out. */
+/** Same attributes, zero lifetime: what you set to sign a bidder out. */
 export function clearedCookieOptions(): SessionCookieOptions {
   return { ...cookieOptions(), maxAge: 0 };
 }

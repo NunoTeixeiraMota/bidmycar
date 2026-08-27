@@ -59,7 +59,7 @@ export default function CarBoard({
     const from = origin?.dataset.spotKey;
     if (!from) return;
 
-    // Left/right walks the car's length, up/down its height — the two axes a
+    // Left/right walks the car's length, up/down its height: the two axes a
     // sighted user is actually looking along. Spots absent from the DOM (the
     // final view only mounts the ones wearing a logo) drop out of both orders.
     const vertical = event.key === "ArrowUp" || event.key === "ArrowDown";
@@ -88,7 +88,7 @@ export default function CarBoard({
     >
       <Image
         src={CAR.photo}
-        alt={`${CAR.name} in profile — ${CAR.subtitle}`}
+        alt={`${CAR.name} in profile, ${CAR.subtitle}`}
         fill
         priority
         sizes="(max-width: 768px) 100vw, (max-width: 1440px) 92vw, 1320px"
@@ -100,7 +100,7 @@ export default function CarBoard({
         role="group"
         aria-label={
           view === "live"
-            ? "Advertising spots on the car — select one to bid"
+            ? "Advertising spots on the car: select one to bid"
             : "Approved logos on the car"
         }
         onKeyDown={handleKeyDown}
@@ -119,7 +119,7 @@ export default function CarBoard({
       </div>
 
       {/* One quiet live region for the spot the visitor is actually looking at.
-          Eleven of them — one per chip — would announce the whole board every
+          Eleven of them, one per chip, would announce the whole board every
           time the stream ticks, which is unusable. */}
       <p aria-live="polite" className="sr-only">
         {selected ? `${selected.name}: ${formatMoney(selected.currentPriceCents)}` : ""}

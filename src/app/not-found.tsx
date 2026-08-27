@@ -24,8 +24,8 @@ export default function NotFound() {
             <Link href="/#spots" className="btn btn-primary btn-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal">
               See the spots
             </Link>
-            <Link href="/how-it-works" className="btn btn-secondary btn-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal">
-              How it works
+            <Link href="/terms" className="btn btn-secondary btn-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal">
+              Conditions
             </Link>
           </div>
         </div>
@@ -33,7 +33,7 @@ export default function NotFound() {
         <div className="mx-auto mt-16 max-w-[880px]">
           <Image
             src={CAR.photo}
-            alt={`${CAR.name} in profile — ${CAR.subtitle}`}
+            alt={`${CAR.name} in profile, ${CAR.subtitle}`}
             width={CAR.photoWidth}
             height={CAR.photoHeight}
             sizes="(max-width: 900px) 100vw, 880px"
